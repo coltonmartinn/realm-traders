@@ -1,0 +1,22 @@
+# Roblox place files and Rojo output
+*.rbxl
+*.rbxlx
+*.rbxl.lock
+*.rbxlx.lock
+*.rbxm
+*.rbxmx
+sourcemap.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Exported logs and analysis output
+analysis/data/
+analysis/output/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
