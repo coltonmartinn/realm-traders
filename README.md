@@ -14,8 +14,9 @@ server-wide market, and buy what they need. Prices come from supply and demand.
 ## Checks you can run without Studio
 
 ```sh
-selene src sim              # lint
-luau sim/run.luau           # economy simulation (stability, oscillation, free-money loops)
+selene src sim tests            # lint
+luau sim/run.luau               # economy simulation (stability, oscillation, free-money loops)
+luau tests/market.test.luau     # trade validation tests
 ```
 
 ## Layout
@@ -23,8 +24,20 @@ luau sim/run.luau           # economy simulation (stability, oscillation, free-m
 | Path | Syncs to | What |
 |---|---|---|
 | `src/shared` | ReplicatedStorage.Shared | Good definitions |
-| `src/server` | ServerScriptService.Server | Market state, price model, NPC traders |
-| `sim/` | (not synced) | Offline simulation harness |
+| `src/server` | ServerScriptService.Server | Market state, price model, NPC traders, player data |
+| (project file) | ReplicatedStorage.Remotes | `TradeRequest`, `MarketUpdate`, `PlayerUpdate` |
+| `sim/`, `tests/` | (not synced) | Offline simulation and tests |
+
+`PriceModel`, `MarketState` and `Npc` use no Roblox APIs and load each other with
+string requires (`require("./PriceModel")`), so the same files run in the `luau` CLI.
+
+## Networking
+
+- Client -> server: `TradeRequest:FireServer(goodId, "buy" | "sell", qty)`.
+  The server checks the good, side, qty (whole number, 1-100), cash, owned
+  amount, market stock and a per-player rate limit. Bad requests are ignored.
+- Server -> all clients, every second: `MarketUpdate` with `{ [goodId]: { price, stock, ask, bid } }`.
+- Server -> one client, after a trade: `PlayerUpdate` with `{ cash, inventory }`.
 
 ## Price model
 
