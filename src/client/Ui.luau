@@ -430,4 +430,69 @@ end
 watchViewport()
 workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(watchViewport)
 
+-- A little 3D chunk of ore: a grey rock studded with crystals of `color`
+-- (glowing for the rare ones), drawn in a ViewportFrame that fills `parent`.
+-- There are no ore emoji that render in Roblox, so mine ores use this.
+function Ui.oreIcon(parent: Instance, color: Color3, glow: boolean): ViewportFrame
+	local vp = Ui.new("ViewportFrame", {
+		Name = "Ore",
+		Parent = parent,
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Ambient = Color3.fromRGB(170, 166, 176),
+		LightColor = Color3.new(1, 1, 1),
+		LightDirection = Vector3.new(-1, -1.6, -0.8),
+	}) :: ViewportFrame
+	local function block(size: Vector3, cf: CFrame, c: Color3, material: Enum.Material)
+		local part = Instance.new("Part")
+		part.Anchored = true
+		part.Size = size
+		part.CFrame = cf
+		part.Color = c
+		part.Material = material
+		part.TopSurface = Enum.SurfaceType.Smooth
+		part.BottomSurface = Enum.SurfaceType.Smooth
+		part.Parent = vp
+	end
+	local rock = Color3.fromRGB(112, 104, 100)
+	block(Vector3.new(2.3, 1.6, 2), CFrame.new(0, -0.3, 0) * CFrame.Angles(0.3, 0.6, 0.15), rock, Enum.Material.Slate)
+	block(Vector3.new(1.5, 1.2, 1.6), CFrame.new(0.8, -0.5, 0.4) * CFrame.Angles(0.8, 0.2, 0.4), rock:Lerp(Color3.new(0, 0, 0), 0.12), Enum.Material.Slate)
+	block(Vector3.new(1.3, 1, 1.3), CFrame.new(-0.8, -0.5, 0.3) * CFrame.Angles(0.4, 1.2, 0.6), rock:Lerp(Color3.new(1, 1, 1), 0.08), Enum.Material.Slate)
+	-- Crystals poking out of the rock, each a little lighter or darker
+	local crystals = {
+		{ 0, 0.55, 0.1, 0.75, 0.15, 0.3 },
+		{ -0.65, 0.3, 0.45, 0.55, -0.5, 0.4 },
+		{ 0.6, 0.35, -0.35, 0.55, 0.6, -0.3 },
+		{ -0.2, 0.1, 0.9, 0.45, -0.2, 0.9 },
+		{ 0.85, -0.05, 0.75, 0.4, 0.8, 0.5 },
+		{ -0.75, 0.0, -0.55, 0.4, -0.6, -0.7 },
+	}
+	for i, c in crystals do
+		local shade = if i % 2 == 0 then color:Lerp(Color3.new(1, 1, 1), 0.25) else color
+		block(Vector3.new(c[4], c[4] * 1.7, c[4]), CFrame.new(c[1], c[2], c[3]) * CFrame.Angles(c[5], i * 0.9, c[6]), shade, if glow then Enum.Material.Neon else Enum.Material.SmoothPlastic)
+	end
+	local camera = Instance.new("Camera")
+	camera.FieldOfView = 38
+	camera.CFrame = CFrame.lookAt(Vector3.new(3.1, 2.5, 4.3), Vector3.new(0, -0.05, 0.1))
+	camera.Parent = vp
+	vp.CurrentCamera = camera
+	return vp
+end
+
+-- Whether a good is drawn as a 3D ore (mine ores and legendary ores).
+function Ui.isOre(good: { tier: number?, legendary: boolean? }): boolean
+	return good.tier ~= nil or good.legendary == true
+end
+
+-- An icon tile for a good: its emoji, or a 3D ore for mine ores.
+function Ui.goodTile(good: { icon: string, color: string, tier: number?, legendary: boolean? }, color: string, size: number): Frame
+	local tile = Ui.iconTile(good.icon, color, size)
+	if Ui.isOre(good) then
+		local label = tile:FindFirstChild("Icon") :: TextLabel
+		label.Text = ""
+		Ui.oreIcon(tile, Color3.fromHex(good.color), (good.tier or 5) >= 3)
+	end
+	return tile
+end
+
 return Ui

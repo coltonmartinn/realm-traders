@@ -50,6 +50,7 @@ local function remote(name: string): RemoteEvent
 	return made
 end
 local PetRequest = remote("PetRequest")
+local MineRequest = remote("MineRequest")
 
 local TICK_SECONDS = 1
 local AUTOSAVE_SECONDS = 60
@@ -404,6 +405,21 @@ local function tryLucky(player: Player, profile: Rules.Profile, w: Rules.Wallet,
 	end
 end
 
+-- Legendary ores: a rare extra find while mining, announced to the server.
+local function findLegendary(player: Player, profile: Rules.Profile, w: Rules.Wallet)
+	local good = Rules.legendaryOf(w.realm)
+	if not good then
+		return
+	end
+	if not Rules.findLegendary(w) then
+		notify(player, { kind = "warn", text = `You found a {good.icon} {good.name} but your backpack is full! Make room to keep the next one` })
+		return
+	end
+	discover(player, profile, good.id)
+	notify(player, { kind = "lucky", header = "🌟 LEGENDARY FIND! 🌟", text = `{good.icon} {good.name:upper()}!`, good = good.id, rarity = "Rainbow", realm = w.realm })
+	announce(`{good.icon} {player.DisplayName} found a LEGENDARY {good.name:upper()} in the Deep Mine!`)
+end
+
 -- Gathering (called by World when a node's prompt is triggered) ------------------
 
 local function onGather(player: Player, node: World.Node): boolean
@@ -424,14 +440,28 @@ local function onGather(player: Player, node: World.Node): boolean
 	lastGather[player] = now
 
 	local w = Rules.wallet(profile, Rules.goodsById[node.goodId].realm)
-	local gained, why = Rules.gather(profile, w, node.goodId)
+	-- A mine vein: roll which ore this swing turns up
+	local goodId = if node.depth then Rules.rollOre(w.realm, node.depth, math.random()).id else node.goodId
+	local gained, why
+	if node.depth then
+		gained, why = Rules.mine(profile, w, node.depth, goodId)
+	else
+		gained, why = Rules.gather(profile, w, goodId)
+	end
 	if not gained then
 		notify(player, { kind = "error", text = why or "Can't gather that" })
 		return false
 	end
-	notify(player, { kind = "gain", text = `+{gained} {goodName[node.goodId]}`, good = node.goodId, amount = gained })
-	discover(player, profile, node.goodId)
-	tryLucky(player, profile, w, node.goodId, gained)
+	local good = Rules.goodsById[goodId]
+	notify(player, { kind = "gain", text = `+{gained} {good.name}`, good = goodId, amount = gained })
+	if good.tier and good.tier >= 4 then
+		notify(player, { kind = "upgrade", text = `{if good.tier == 5 then "💥 SUPER RARE" else "✨ RARE"} ORE! {good.icon} {good.name}` })
+	end
+	discover(player, profile, goodId)
+	tryLucky(player, profile, w, goodId, gained)
+	if node.depth and math.random() < Rules.legendaryChance(node.depth) * Rules.boostMult(profile, "luck") then
+		findLegendary(player, profile, w)
+	end
 	commit(player, profile)
 	return true
 end
@@ -469,6 +499,52 @@ local function onPortal(player: Player, realmId: string)
 	end
 	commit(player, profile)
 end
+
+-- The mine lift: depth 0 is the surface, 1-5 the levels below. Players can
+-- only go as deep as their gear allows in the world they're in, and only
+-- from a lift (on the surface or on a mine level).
+MineRequest.OnServerEvent:Connect(function(player: Player, depth: unknown)
+	local profile = PlayerData.get(player)
+	local character = player.Character
+	local rootPart = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
+	if not profile or not character or not rootPart or not allowRequest(player) or type(depth) ~= "number" then
+		return
+	end
+	local realmId = realmOf(player)
+	local w = hereWallet(player, profile)
+	if not w then
+		return
+	end
+	local entrance = Places.mineEntrance(realmId)
+	local here = Places.mineDepthAt(rootPart.Position)
+	local liftAt = if here then Places.mineLevel(realmId, here) + Vector3.new(0, 0, -Places.MINE_HALF + 5) else entrance
+	if ((rootPart.Position - liftAt) * Vector3.new(1, 0, 1)).Magnitude > 30 then
+		notify(player, { kind = "error", text = "Use the mine lift" })
+		return
+	end
+	if depth == 0 then
+		local center = Places.CENTERS[realmId]
+		local front = entrance + ((Vector3.new(center.X, 0, center.Z) - entrance) * Vector3.new(1, 0, 1)).Unit * 11
+		character:PivotTo(CFrame.lookAt(front + Vector3.new(0, 3.5, 0), Vector3.new(center.X, 3.5, center.Z)))
+		return
+	end
+	local block = Rules.depthBlock(w, depth)
+	if block then
+		notify(player, { kind = "error", text = block })
+		return
+	end
+	local floor = Places.mineLevel(realmId, depth)
+	local arrive = floor + Vector3.new(0, 3.5, -Places.MINE_HALF + 13)
+	character:PivotTo(CFrame.lookAt(arrive, arrive + Vector3.new(0, 0, 10)))
+	local best = Rules.oreOdds(realmId, depth)
+	local top = best[1]
+	for _, o in best do
+		if o.chance > top.chance then
+			top = o
+		end
+	end
+	notify(player, { kind = "ok", text = `⛏️ Mine level {depth}: mostly {top.good.icon} {top.good.name}, about {money(math.floor(Rules.oreValue(realmId, depth)), realmId)} a swing` })
+end)
 
 World.build(onGather, onPortal)
 Leaderboard.start(workspace:WaitForChild("World"), PlayerData.get)
@@ -575,7 +651,8 @@ task.spawn(function()
 			local rootPart = character and character:FindFirstChild("HumanoidRootPart") :: BasePart?
 			if profile and rate > 0 and rootPart then
 				local zone = nil
-				for _, place in Places.list do
+				-- (no zones underground: the mine is mined by hand)
+				for _, place in if Places.mineDepthAt(rootPart.Position) then {} else Places.list do
 					if place.kind == "zone" and ((rootPart.Position - place.center) * Vector3.new(1, 0, 1)).Magnitude <= place.radius + 2 then
 						zone = place
 					end

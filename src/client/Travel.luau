@@ -76,6 +76,15 @@ function Travel.go(placeId: string)
 	teleport(Places.arrival(place))
 end
 
+-- In front of this world's Deep Mine lift.
+function Travel.toMine()
+	local realm = Store.realm
+	local at = Places.mineEntrance(realm)
+	local center = Places.CENTERS[realm] or Places.HUB
+	local front = at + ((center - at) * Vector3.new(1, 0, 1)).Unit * 12
+	teleport(CFrame.lookAt(front, Vector3.new(at.X, front.Y, at.Z)))
+end
+
 -- Back to Market Town's plaza (leaving a world is always allowed).
 function Travel.home()
 	teleport(CFrame.lookAt(Places.SPAWN, Places.SPAWN + Vector3.new(0, 0, -20)))

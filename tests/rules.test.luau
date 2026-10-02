@@ -22,7 +22,7 @@ do
 	local n, why = Rules.gather(p, p, "iron")
 	check("iron needs gear 2", n == nil and why ~= nil and p.inventory.iron == nil)
 	check("crafted goods can't be gathered", Rules.gather(p, p, "bread") == nil)
-	check("unknown good can't be gathered", Rules.gather(p, p, "gold") == nil)
+	check("unknown good can't be gathered", Rules.gather(p, p, "unobtainium") == nil)
 
 	p.upgrades.gear = 3
 	check("gear 3 yields 3", Rules.gather(p, p, "iron") == 3)
@@ -418,7 +418,7 @@ do
 	check("first wood pays 50", Rules.discover(p, "wood") == 50 and p.cash == cash + 50)
 	check("only once", Rules.discover(p, "wood") == nil)
 	check("golden wood is separate", Rules.discover(p, "wood", "Golden") == 500)
-	check("unknown good ignored", Rules.discover(p, "gold") == nil)
+	check("unknown good ignored", Rules.discover(p, "unobtainium") == nil)
 	check("reconcile keeps entries, drops junk", (function()
 		local q = Rules.reconcile({ collection = { wood = true, ["wood:Golden"] = true, ["junk"] = true } })
 		return q.collection.wood == true and q.collection["wood:Golden"] == true and q.collection.junk == nil
@@ -443,19 +443,66 @@ do
 
 	p = Rules.reconcile({
 		cash = 250.7,
-		inventory = { wood = 4, gold = 9, stone = -3, iron = 0 / 0 },
+		inventory = { wood = 4, unobtainium = 9, stone = -3, iron = 0 / 0 },
 		upgrades = { gear = 99, backpack = 2, jetpack = 3 },
 		stats = { gathered = { wood = 10 }, sold = "lots", earned = 40 },
 		goal = 3,
 	})
 	check("cash floored", p.cash == 250)
-	check("unknown and bad goods dropped", p.inventory.wood == 4 and p.inventory.gold == nil and p.inventory.stone == nil and p.inventory.iron == nil)
+	check("unknown and bad goods dropped", p.inventory.wood == 4 and p.inventory.unobtainium == nil and p.inventory.stone == nil and p.inventory.iron == nil)
 	check("upgrade level clamped", p.upgrades.gear == Upgrades.maxLevel("gear") and p.upgrades.backpack == 2)
 	check("unknown upgrade dropped", (p.upgrades :: any).jetpack == nil)
 	check("stats kept / bad stats zeroed", p.stats.gathered.wood == 10 and p.stats.sold == 0 and p.stats.earned == 40)
 	check("goal kept", p.goal == 3)
 	check("goal clamped", Rules.reconcile({ goal = 500 }).goal == #Goals.main + 1)
 	check("garbage save", Rules.reconcile("garbage").cash == Rules.START_CASH)
+end
+
+-- Deep Mine: depth by gear (hub) or protective gear (portal worlds), random ores
+do
+	local p = Rules.newProfile()
+	check("everyone can mine level 1", Rules.depthBlock(p, 1) == nil and Rules.mineDepth(p) == 1)
+	check("level 2 needs gear 2", Rules.depthBlock(p, 2) ~= nil)
+	check("no level 6", Rules.depthBlock(p, 6) ~= nil and Rules.depthBlock(p, 0) ~= nil)
+	check("ores can't be gathered, only mined", Rules.gather(p, p, "copper") == nil)
+	check("mine level 1: one ore per swing", Rules.mine(p, p, 1, "gold") == 1 and p.inventory.gold == 1)
+	check("can't mine level 2 at gear 1", Rules.mine(p, p, 2, "copper") == nil)
+	check("other worlds' ores aren't found here", Rules.mine(p, p, 1, "pearl") == nil)
+	p.upgrades.gear = 4
+	check("gear 4 reaches level 4", Rules.mineDepth(p) == 4 and Rules.depthBlock(p, 4) == nil and Rules.depthBlock(p, 5) ~= nil)
+	check("legendary can't be mined directly", Rules.mine(p, p, 1, "starstone") == nil and Rules.gather(p, p, "starstone") == nil)
+	check("legendary found by luck", Rules.findLegendary(p) and p.inventory.starstone == 1)
+	check("deeper is luckier", Rules.legendaryChance(5) > Rules.legendaryChance(1))
+
+	-- Odds: every level has every ore, sums to 100%, rarer ores more common deeper
+	local ok, rising = true, true
+	for depth = 1, Rules.MINE_DEPTHS do
+		local sum = 0
+		local odds = Rules.oreOdds("main", depth)
+		for _, o in odds do
+			sum += o.chance
+		end
+		ok = ok and #odds == 5 and math.abs(sum - 1) < 1e-9
+		if depth > 1 then
+			rising = rising and Rules.oreValue("main", depth) > Rules.oreValue("main", depth - 1) and odds[5].chance > Rules.oreOdds("main", depth - 1)[5].chance
+		end
+	end
+	check("every level can give all five ores", ok)
+	check("deeper levels give better ores", rising)
+	check("roll 0 is the commonest ore, roll ~1 the rarest", Rules.rollOre("main", 3, 0).id == "copper" and Rules.rollOre("main", 3, 0.9999).id == "sapphire")
+	local seen: { [string]: boolean } = {}
+	for i = 0, 999 do
+		seen[Rules.rollOre("ember", 5, i / 1000).id] = true
+	end
+	check("level 5 still has variety", seen.obsidian and seen.dragonheart and seen.garnet)
+
+	local frost = Rules.wallet(p, "frost")
+	check("gear doesn't help in Frostpeak's mine", frost.upgrades.gear == 1 and Rules.depthBlock(frost, 2) ~= nil)
+	check("thermal gear sold in Frostpeak only", Rules.upgradeBlock(p, "thermal") ~= nil and Rules.upgradeBlock(Rules.wallet(p, "ember"), "thermal") ~= nil)
+	frost.cash = 1e9
+	check("thermal gear upgrade", Rules.upgrade(frost, "thermal") and Rules.mineDepth(frost) == 2)
+	check("fireproof armor sets ember depth", Rules.wallet(p, "ember").upgrades.fireproof == 1 and Rules.mineDepth(Rules.wallet(p, "ember")) == 1)
+	check("every world has five ores and a legendary", Rules.oreAt("frost", 5) ~= nil and Rules.oreAt("ember", 5) ~= nil and Rules.legendaryOf("frost") ~= nil and Rules.legendaryOf("ember") ~= nil)
 end
 
 if failures > 0 then

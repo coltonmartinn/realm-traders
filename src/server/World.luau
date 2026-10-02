@@ -18,14 +18,20 @@ local TweenService = game:GetService("TweenService")
 local Goods = require(ReplicatedStorage.Shared.Goods)
 local Places = require(ReplicatedStorage.Shared.Places)
 local Realms = require(ReplicatedStorage.Shared.Realms)
+local Rules = require(ReplicatedStorage.Shared.Rules)
+local Upgrades = require(ReplicatedStorage.Shared.Upgrades)
 local Layout = require(script.Parent.Layout)
 local Scenery = require(script.Parent.Scenery)
 local Backdrop = require(script.Parent.Backdrop)
 
+local K = Scenery.kit
+
 local RESPAWN_SECONDS = 10
 local HOLD_SECONDS = 0.4
 
-export type Node = { goodId: string, prompt: ProximityPrompt }
+-- `depth` is set on Deep Mine veins (the mine level): the server rolls which
+-- ore each swing turns up. Elsewhere `goodId` is what's gathered.
+export type Node = { goodId: string, prompt: ProximityPrompt, depth: number? }
 export type GatherHandler = (player: Player, node: Node) -> boolean
 export type PortalHandler = (player: Player, realmId: string) -> ()
 
@@ -39,7 +45,7 @@ for _, g in Goods do
 end
 
 local C = {
-	grass = Color3.fromRGB(110, 190, 84),
+	grass = Color3.fromRGB(104, 198, 74),
 	grassDark = Color3.fromRGB(86, 160, 70),
 	paving = Color3.fromRGB(236, 222, 194),
 	pavingEdge = Color3.fromRGB(184, 168, 140),
@@ -78,15 +84,22 @@ local function folder(name: string, parent: Instance?): Folder
 	return f
 end
 
--- Ground layers. The ground itself is Terrain (it can't flicker), and every
--- flat floor laid on it has its own height, well clear of the others, so no
--- two surfaces ever share a plane (that's what makes ground textures flicker).
+-- Ground layers. The ground is smooth flat colour (no busy texture to
+-- shimmer), and every flat floor laid on it has its own height, well clear of
+-- the others. Two surfaces at (nearly) the same height flicker, worse the
+-- further away they are, so the gaps are at least 0.1 studs.
+local PATH_COLORS: { [string]: Color3 } = {
+	frost = Color3.fromRGB(190, 206, 224),
+	ember = Color3.fromRGB(150, 110, 90),
+}
+
 local LAYER = {
 	zone = 0.2, -- gathering zone floors
-	path = 0.3,
-	street = 0.4,
-	plazaEdge = 0.45,
-	plaza = 0.5,
+	path = 0.35,
+	curb = 0.5, -- the stone edging beside paths
+	street = 0.5,
+	plazaEdge = 0.6,
+	plaza = 0.7,
 }
 
 -- A flat floor whose top is at `top`, sunk into the ground below it.
@@ -105,61 +118,22 @@ local function floorDisc(parent: Instance, name: string, center: Vector3, diamet
 	return part({ Name = name, Parent = parent, Shape = Enum.PartType.Cylinder, Size = Vector3.new(t, diameter, diameter), CFrame = CFrame.new(center.X, top - t / 2, center.Z) * CFrame.Angles(0, 0, math.rad(90)), Color = color, Material = material, CastShadow = false })
 end
 
--- Terrain grass grows blades that poke up through thin floors, so under each
--- floor in a grassy world the terrain is bare earth (a little smaller than
--- the floor, so it never shows round the edge).
-local function bareBlock(cf: CFrame, size: Vector3)
-	workspace.Terrain:FillBlock(cf - Vector3.new(0, cf.Position.Y + 4, 0), Vector3.new(size.X, 8, size.Z), Enum.Material.Ground)
-end
-local function bareDisc(center: Vector3, radius: number)
-	workspace.Terrain:FillCylinder(CFrame.new(center.X, -4, center.Z), 8, radius, Enum.Material.Ground)
-end
-
--- A flat slab between two points on the ground (paths).
-local function strip(parent: Instance, from: Vector3, to: Vector3, width: number, color: Color3, material: Enum.Material, top: number, bare: boolean)
+-- A cobblestone path between two points, with a darker stone curb each side.
+local function strip(parent: Instance, from: Vector3, to: Vector3, width: number, color: Color3)
 	local a, b = Vector3.new(from.X, 0, from.Z), Vector3.new(to.X, 0, to.Z)
 	local length = (b - a).Magnitude
 	local cf = CFrame.lookAt((a + b) / 2, b)
-	slab({ Name = "Path", Parent = parent, Size = Vector3.new(width, 1, length), CFrame = cf, Color = color, Material = material }, top)
-	if bare then
-		bareBlock(cf, Vector3.new(width - 3, 0, length))
+	slab({ Name = "Path", Parent = parent, Size = Vector3.new(width, 1, length), CFrame = cf, Color = color, Material = Enum.Material.Cobblestone }, LAYER.path)
+	for _, side in { -1, 1 } do
+		slab({ Name = "Curb", Parent = parent, Size = Vector3.new(0.8, 1, length), CFrame = cf * CFrame.new(side * (width / 2 + 0.4), 0, 0), Color = color:Lerp(Color3.fromRGB(60, 50, 50), 0.35), Material = Enum.Material.Cobblestone }, LAYER.curb)
 	end
 end
 
--- Terrain colours. A Terrain material has one colour everywhere, so each
--- material is used for one look only. Bright and saturated, like the top
--- simulators.
-local TERRAIN_COLORS: { [Enum.Material]: Color3 } = {
-	[Enum.Material.Grass] = Color3.fromRGB(104, 198, 74),
-	[Enum.Material.LeafyGrass] = Color3.fromRGB(64, 160, 62),
-	[Enum.Material.Ground] = Color3.fromRGB(150, 110, 72),
-	[Enum.Material.Mud] = Color3.fromRGB(116, 82, 54),
-	[Enum.Material.Slate] = Color3.fromRGB(186, 180, 166),
-	[Enum.Material.Limestone] = Color3.fromRGB(88, 72, 116),
-	[Enum.Material.Snow] = Color3.fromRGB(242, 248, 255),
-	[Enum.Material.Ice] = Color3.fromRGB(150, 210, 250),
-	[Enum.Material.Glacier] = Color3.fromRGB(160, 214, 246),
-	[Enum.Material.Basalt] = Color3.fromRGB(70, 56, 56),
-	[Enum.Material.CrackedLava] = Color3.fromRGB(240, 96, 36),
-	[Enum.Material.Asphalt] = Color3.fromRGB(100, 92, 92),
-	[Enum.Material.Rock] = Color3.fromRGB(84, 42, 48),
-}
-
--- Each world's ground: one big slab of terrain, 8 studs deep with its top at 0.
-local function buildTerrain()
-	local terrain = workspace.Terrain
-	for material, color in TERRAIN_COLORS do
-		terrain:SetMaterialColor(material, color)
-	end
-	-- Swaying grass blades. Scripts can't set this today (it's the Decoration
-	-- box on Workspace.Terrain in Studio), so this only helps if that changes.
-	pcall(function()
-		(terrain :: any).Decoration = true
-	end)
-	local grounds = { main = Enum.Material.Grass, frost = Enum.Material.Snow, ember = Enum.Material.Basalt }
-	for realmId, material in grounds do
-		terrain:FillBlock(CFrame.new(Places.CENTERS[realmId] + Vector3.new(0, -4, 0)), Vector3.new(1024, 8, 1024), material)
-	end
+-- A world's ground inside its walls: one smooth disc with its top at 0. The
+-- backdrop (Backdrop.luau) tiles the ring outside it.
+local function groundDisc(parent: Instance, center: Vector3, color: Color3)
+	local diameter = (Places.REALM_RADIUS - 4) * 2
+	part({ Name = "Ground", Parent = parent, Shape = Enum.PartType.Cylinder, Size = Vector3.new(4, diameter, diameter), CFrame = CFrame.new(center.X, -2, center.Z) * CFrame.Angles(0, 0, math.rad(90)), Color = color, Material = Enum.Material.SmoothPlastic })
 end
 
 -- Big text on the front face of a board (sign boards, arches).
@@ -282,12 +256,236 @@ local function lamp(parent: Instance, at: Vector3)
 	light.Parent = head
 end
 
+-- Centerpiece ---------------------------------------------------------------------------
+
+-- The hub's centerpiece: a giant gold coin spinning on a marble column above a
+-- stepped plinth heaped with coins, with three crystals (one per world)
+-- circling it. The spinning is done on each client (Main.client), which turns
+-- every Model with a "Spin" attribute (radians per second) about its pivot.
+-- The coin sits high enough to keep the Market and portals in view from spawn.
+local function buildCenterpiece(hub: Instance)
+	local center = Vector3.zero
+	local m = group(hub, "Centerpiece")
+	Layout.claim(center, 7)
+	local marble = Color3.fromRGB(246, 242, 234)
+	local gold = Color3.fromRGB(255, 196, 50)
+	local function disc(name: string, diameter: number, bottom: number, height: number, color: Color3, material: Enum.Material): Part
+		return part({ Name = name, Parent = m, Shape = Enum.PartType.Cylinder, Size = Vector3.new(height, diameter, diameter), CFrame = CFrame.new(center.X, bottom + height / 2, center.Z) * CFrame.Angles(0, 0, math.rad(90)), Color = color, Material = material })
+	end
+
+	-- Stepped plinth with gold bands (each layer sits on the one below)
+	disc("Plinth", 13, 0.4, 1, marble, Enum.Material.Marble)
+	disc("PlinthBand", 11, 1.4, 0.3, gold, Enum.Material.Metal)
+	disc("Plinth", 9.4, 1.7, 1, marble, Enum.Material.Marble)
+	disc("PlinthBand", 7.6, 2.7, 0.3, gold, Enum.Material.Metal)
+	disc("Plinth", 6, 3, 0.8, marble, Enum.Material.Marble)
+
+	-- Heaps of coins on the lower ledge, and gems on the upper one
+	local rng = Random.new(7)
+	for i = 0, 7 do
+		local a = i / 8 * math.pi * 2 + math.pi / 8
+		local at = center + Vector3.new(math.cos(a) * 5.6, 0, math.sin(a) * 5.6)
+		local stack = group(m, "CoinStack")
+		for k = 0, rng:NextInteger(2, 5) do
+			local jitter = Vector3.new(rng:NextNumber(-0.12, 0.12), 0, rng:NextNumber(-0.12, 0.12))
+			part({ Name = "Coin", Parent = stack, Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.24, 1.2, 1.2), CFrame = CFrame.new(at + jitter + Vector3.new(0, 1.52 + k * 0.25, 0)) * CFrame.Angles(0, 0, math.rad(90)), Color = gold, Material = Enum.Material.Metal, CanCollide = false })
+		end
+	end
+	local gems = { Color3.fromRGB(110, 210, 110), Color3.fromRGB(120, 200, 255), Color3.fromRGB(255, 110, 50), Color3.fromRGB(200, 130, 255) }
+	for i, color in gems do
+		local a = i / #gems * math.pi * 2
+		local at = center + Vector3.new(math.cos(a) * 3.9, 2.0 + 0.55, math.sin(a) * 3.9)
+		local gem = part({ Name = "Gem", Parent = m, Size = Vector3.new(0.8, 0.8, 0.8), CFrame = CFrame.new(at) * CFrame.Angles(math.rad(45), math.rad(i * 30), math.rad(35)), Color = color, Material = Enum.Material.Neon, CanCollide = false })
+		gem.CastShadow = false
+	end
+
+	-- Fluted column with a gold capital
+	disc("Column", 2.2, 3.8, 9.4, marble, Enum.Material.Marble)
+	for i = 0, 7 do
+		local a = i / 8 * math.pi * 2
+		part({ Name = "Flute", Parent = m, Size = Vector3.new(0.3, 9.4, 0.3), CFrame = CFrame.new(center + Vector3.new(math.cos(a) * 1.08, 8.5, math.sin(a) * 1.08)), Color = marble:Lerp(Color3.fromRGB(200, 196, 190), 0.4), Material = Enum.Material.Marble })
+	end
+	disc("ColumnRing", 3, 4.2, 0.4, gold, Enum.Material.Metal)
+	disc("Capital", 3.6, 13.2, 0.6, gold, Enum.Material.Metal)
+	disc("Capital", 2.8, 13.8, 0.5, gold, Enum.Material.Metal)
+
+	-- The giant coin: an engraved gold face, a raised rim, a ridged edge
+	local coinY = 18
+	local coin = group(m, "Coin")
+	local coinCf = CFrame.new(center.X, coinY, center.Z) -- the cylinder's flat faces point along X
+	local face = part({ Name = "CoinFace", Parent = coin, Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.9, 7, 7), CFrame = coinCf, Color = gold, Material = Enum.Material.Metal, Reflectance = 0.15, CanCollide = false })
+	local rimGold = Color3.fromRGB(226, 156, 34)
+	-- Raised rim: a ring standing a little proud of both faces (cut from a
+	-- solid cylinder; skipped if that's unavailable)
+	local outer = part({ Name = "CoinRim", Parent = coin, Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.15, 7.6, 7.6), CFrame = coinCf, Color = rimGold, Material = Enum.Material.Metal, CanCollide = false })
+	local hole = part({ Name = "Hole", Parent = coin, Shape = Enum.PartType.Cylinder, Size = Vector3.new(2, 6.7, 6.7), CFrame = coinCf, Color = rimGold })
+	local ok, rim = pcall(function()
+		return outer:SubtractAsync({ hole })
+	end)
+	hole:Destroy()
+	if ok and rim then
+		rim.Name = "CoinRim"
+		rim.Anchored = true
+		rim.CanCollide = false
+		rim.UsePartColor = true
+		rim.Color = rimGold
+		rim.Material = Enum.Material.Metal
+		rim.CFrame = outer.CFrame
+		rim.Parent = coin
+	end
+	outer:Destroy()
+	-- Ridged edge, like a real coin
+	local ridges = 56
+	for i = 0, ridges - 1 do
+		local a = i / ridges * math.pi * 2
+		part({ Name = "Ridge", Parent = coin, Size = Vector3.new(1.05, 0.22, 0.3), CFrame = coinCf * CFrame.Angles(a, 0, 0) * CFrame.new(0, 3.82, 0), Color = rimGold:Lerp(Color3.fromRGB(150, 90, 10), 0.3), Material = Enum.Material.Metal, CanCollide = false, CastShadow = false })
+	end
+
+	-- Engraving on each face: a beaded border, the game's name round the top,
+	-- stars round the bottom, a big $ in the middle and a shine across it
+	local engrave = Color3.fromRGB(170, 100, 20)
+	local shiny = Color3.fromRGB(255, 238, 160)
+	local function circle(parent: Instance, size: number, color: Color3, transparency: number, stroke: number?): Frame
+		local f = Instance.new("Frame")
+		f.AnchorPoint = Vector2.new(0.5, 0.5)
+		f.Position = UDim2.fromScale(0.5, 0.5)
+		f.Size = UDim2.fromScale(size, size)
+		f.BackgroundColor3 = color
+		f.BackgroundTransparency = transparency
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0.5, 0)
+		corner.Parent = f
+		if stroke then
+			local s = Instance.new("UIStroke")
+			s.Color = engrave
+			s.Thickness = stroke
+			s.Parent = f
+		end
+		f.Parent = parent
+		return f
+	end
+	local function glyph(parent: Instance, text: string, x: number, y: number, size: number, rotation: number)
+		local label = Instance.new("TextLabel")
+		label.AnchorPoint = Vector2.new(0.5, 0.5)
+		label.Position = UDim2.fromScale(x, y)
+		label.Size = UDim2.fromScale(size, size)
+		label.Rotation = rotation
+		label.BackgroundTransparency = 1
+		label.Font = Enum.Font.LuckiestGuy
+		label.TextScaled = true
+		label.Text = text
+		label.TextColor3 = shiny
+		local s = Instance.new("UIStroke")
+		s.Color = engrave
+		s.Thickness = 2
+		s.Parent = label
+		label.Parent = parent
+	end
+	-- Places items evenly round an arc of the face (angles in degrees, 0 = top, clockwise)
+	local function around(radius: number, from: number, to: number, count: number, each: (x: number, y: number, rotation: number, index: number) -> ())
+		for i = 1, count do
+			local deg = if count == 1 then from else from + (to - from) * (i - 1) / (count - 1)
+			local r = math.rad(deg)
+			each(0.5 + math.sin(r) * radius, 0.5 - math.cos(r) * radius, deg, i)
+		end
+	end
+	for _, faceId in { Enum.NormalId.Right, Enum.NormalId.Left } do
+		local gui = Instance.new("SurfaceGui")
+		gui.Face = faceId
+		gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+		gui.PixelsPerStud = 60
+		gui.LightInfluence = 0.5
+		gui.Parent = face
+		local canvas = circle(gui, 1, gold, 1)
+		-- Engraved rings with a beaded band between them
+		circle(canvas, 0.92, gold, 1, 3)
+		circle(canvas, 0.62, gold, 1, 4)
+		around(0.42, 0, 360 - 360 / 44, 44, function(x, y)
+			local bead = circle(canvas, 0.022, shiny, 0)
+			bead.Position = UDim2.fromScale(x, y)
+		end)
+		-- REALM TRADERS round the top, stars round the bottom
+		local name = "REALM TRADERS"
+		around(0.36, -78, 78, #name, function(x, y, rotation, i)
+			glyph(canvas, name:sub(i, i), x, y, 0.085, rotation)
+		end)
+		around(0.36, 145, 215, 3, function(x, y, rotation)
+			glyph(canvas, "★", x, y, 0.08, rotation - 180)
+		end)
+		-- The $ with a shadow, and a star each side
+		local shadow = Instance.new("TextLabel")
+		shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+		shadow.Position = UDim2.fromScale(0.515, 0.515)
+		shadow.Size = UDim2.fromScale(0.5, 0.5)
+		shadow.BackgroundTransparency = 1
+		shadow.Font = Enum.Font.LuckiestGuy
+		shadow.TextScaled = true
+		shadow.Text = "$"
+		shadow.TextColor3 = engrave
+		shadow.TextTransparency = 0.3
+		shadow.Parent = canvas
+		local dollar = shadow:Clone()
+		dollar.Position = UDim2.fromScale(0.5, 0.5)
+		dollar.TextColor3 = shiny
+		dollar.TextTransparency = 0
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = engrave
+		stroke.Thickness = 5
+		stroke.Parent = dollar
+		dollar.Parent = canvas
+		glyph(canvas, "★", 0.27, 0.5, 0.07, 0)
+		glyph(canvas, "★", 0.73, 0.5, 0.07, 0)
+		-- A soft diagonal shine
+		local shine = circle(canvas, 1, Color3.new(1, 1, 1), 0)
+		shine.ZIndex = 5
+		local gradient = Instance.new("UIGradient")
+		gradient.Rotation = 35
+		gradient.Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(0.3, 1),
+			NumberSequenceKeypoint.new(0.4, 0.65),
+			NumberSequenceKeypoint.new(0.47, 1),
+			NumberSequenceKeypoint.new(0.55, 0.8),
+			NumberSequenceKeypoint.new(0.6, 1),
+			NumberSequenceKeypoint.new(1, 1),
+		})
+		gradient.Parent = shine
+	end
+	sparkle(face, gold)
+	local glow = Instance.new("PointLight")
+	glow.Color = Color3.fromRGB(255, 210, 120)
+	glow.Range = 22
+	glow.Brightness = 1.4
+	glow.Parent = face
+	coin.WorldPivot = CFrame.new(center.X, coinY, center.Z)
+	coin:SetAttribute("Spin", 1.2)
+
+	-- Three crystals circling the coin, one for each world
+	local orbit = group(m, "Orbit")
+	local worlds = { Color3.fromRGB(110, 210, 110), Color3.fromRGB(120, 200, 255), Color3.fromRGB(255, 110, 50) }
+	for i, color in worlds do
+		local a = i / #worlds * math.pi * 2
+		local at = center + Vector3.new(math.cos(a) * 6, coinY - 2.5, math.sin(a) * 6)
+		local crystal = part({ Name = "WorldCrystal", Parent = orbit, Size = Vector3.new(1, 2.6, 1), CFrame = CFrame.new(at) * CFrame.Angles(0, math.rad(45), 0), Color = color, Material = Enum.Material.Neon, CanCollide = false })
+		crystal.CastShadow = false
+		sparkle(crystal, color)
+		local light = Instance.new("PointLight")
+		light.Color = color
+		light.Range = 10
+		light.Brightness = 1
+		light.Parent = crystal
+	end
+	orbit.WorldPivot = CFrame.new(center.X, coinY - 2.5, center.Z)
+	orbit:SetAttribute("Spin", -0.5)
+end
+
 -- Hub -------------------------------------------------------------------------------
 
 local function buildLighting()
 	Lighting.ClockTime = 13.5
 	Lighting.Brightness = 2.6
 	Lighting.OutdoorAmbient = Color3.fromRGB(150, 150, 160)
+	Lighting.Ambient = Color3.fromRGB(96, 92, 104) -- indoors and underground (the mine)
 	Lighting.EnvironmentDiffuseScale = 0.7
 	Lighting.EnvironmentSpecularScale = 0.3
 	Lighting.GlobalShadows = true
@@ -307,32 +505,14 @@ end
 local function buildHub(rng: Random)
 	local hub = folder("Hub")
 
+	groundDisc(hub, Vector3.zero, C.grass)
+
 	-- Plaza: a circle around the fountain plus the shop street behind it
-	-- (the ground under them is terrain, see buildTerrain)
 	floorDisc(hub, "PlazaEdge", Vector3.new(0, 0, 4), 52, LAYER.plazaEdge, C.pavingEdge, Enum.Material.Pavement)
 	floorDisc(hub, "Plaza", Vector3.new(0, 0, 4), 48, LAYER.plaza, C.paving, Enum.Material.Pavement)
 	slab({ Name = "ShopStreet", Parent = hub, Size = Vector3.new(100, 1, 30), Position = Vector3.new(0, 0, -28), Color = C.paving, Material = Enum.Material.Pavement }, LAYER.street)
-	bareDisc(Vector3.new(0, 0, 4), 23)
-	bareBlock(CFrame.new(0, 0, -28), Vector3.new(96, 0, 26))
 
-	-- Fountain landmark
-	local fountain = group(hub, "Fountain")
-	Layout.claim(Vector3.new(0, 0, -2), 7)
-	part({ Name = "FountainRim", Parent = fountain, Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.6, 14, 14), CFrame = CFrame.new(0, 0.8, -2) * CFrame.Angles(0, 0, math.rad(90)), Color = C.white, Material = Enum.Material.Marble })
-	part({ Name = "FountainWater", Parent = fountain, Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.2, 12, 12), CFrame = CFrame.new(0, 1.5, -2) * CFrame.Angles(0, 0, math.rad(90)), Color = C.water, Material = Enum.Material.Glass, Transparency = 0.25, CanCollide = false })
-	part({ Name = "FountainPillar", Parent = fountain, Shape = Enum.PartType.Cylinder, Size = Vector3.new(5, 2, 2), CFrame = CFrame.new(0, 3, -2) * CFrame.Angles(0, 0, math.rad(90)), Color = C.white, Material = Enum.Material.Marble })
-	local bowl = part({ Name = "FountainBowl", Parent = fountain, Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.8, 6, 6), CFrame = CFrame.new(0, 5.6, -2) * CFrame.Angles(0, 0, math.rad(90)), Color = C.white, Material = Enum.Material.Marble })
-	local spray = Instance.new("ParticleEmitter")
-	spray.Rate = 40
-	spray.Lifetime = NumberRange.new(0.8, 1.1)
-	spray.Speed = NumberRange.new(8, 10)
-	spray.SpreadAngle = Vector2.new(12, 12)
-	spray.Acceleration = Vector3.new(0, -30, 0)
-	spray.Size = NumberSequence.new(0.35, 0.1)
-	spray.Color = ColorSequence.new(Color3.fromRGB(200, 235, 255))
-	spray.Transparency = NumberSequence.new(0.2, 0.8)
-	spray.EmissionDirection = Enum.NormalId.Right -- cylinder's X axis points up after the rotation
-	spray.Parent = bowl
+	buildCenterpiece(hub)
 
 	local spawn = Instance.new("SpawnLocation")
 	spawn.Anchored = true
@@ -347,31 +527,6 @@ local function buildHub(rng: Random)
 	local decal = spawn:FindFirstChildOfClass("Decal")
 	if decal then
 		decal:Destroy()
-	end
-
-	-- Signpost next to spawn: one board per zone, pointing at it.
-	local postAt = Vector3.new(-10, 0, 7) -- inside the plaza, clear of the paths
-	local signpost = group(hub, "Signpost")
-	Layout.claim(postAt, 5.6)
-	part({ Name = "SignPost", Parent = signpost, Size = Vector3.new(0.7, 9, 0.7), Position = postAt + Vector3.new(0, 4.5, 0), Color = C.woodDark, Material = Enum.Material.Wood })
-	local y = 8
-	for _, place in Places.inRealm("main") do
-		if place.kind == "zone" then
-			local dir = ((place.center - postAt) * Vector3.new(1, 0, 1)).Unit
-			local base = postAt + Vector3.new(0, y, 0)
-			-- Long axis (Z) points at the zone; text goes on both sides
-			local board = part({
-				Name = "Arrow",
-				Parent = signpost,
-				Size = Vector3.new(0.25, 1.1, 5.5),
-				CFrame = CFrame.lookAt(base, base + dir) * CFrame.new(0, 0, -2.9),
-				Color = C.wood,
-				Material = Enum.Material.WoodPlanks,
-			})
-			boardText(board, `{place.icon} {place.name:upper()}`, Color3.new(1, 1, 1), Enum.NormalId.Left)
-			boardText(board, `{place.icon} {place.name:upper()}`, Color3.new(1, 1, 1), Enum.NormalId.Right)
-			y -= 1.4
-		end
 	end
 
 	-- Plaza dressing
@@ -530,41 +685,213 @@ local function shopkeeper(parent: Instance, cf: CFrame, accent: Color3, name: st
 	model.Parent = parent
 end
 
+-- The three shops in each world, each built for its trade on a raised stone
+-- base: a striped bazaar tent for the Market, a timber-framed workshop with a
+-- forge for the Workshop, and an explorer's canvas tent full of gear for the
+-- Outfitter. Front (-Z) faces the plaza.
+local FLOOR = 1.2 -- top of the plank deck (well above the street, so they never share a plane)
+local STONE = Color3.fromRGB(176, 166, 150)
+local GOLD = Color3.fromRGB(255, 200, 60)
+local SNOW = Color3.fromRGB(248, 252, 255)
+
 local function shop(place: Places.Place, roof: Color3, keeper: string, crates: { string }, style: string?)
 	local model = Instance.new("Model")
 	model.Name = place.name
 	model.Parent = root
 
-	-- Front (-Z) faces the plaza
 	local cf = CFrame.lookAt(place.center, Places.centerOf(place) + Vector3.new(0, 0, 4))
 	local function at(x: number, y: number, z: number): CFrame
 		return cf * CFrame.new(x, y, z)
 	end
+	local function add(name: string, size: Vector3, where: CFrame, color: Color3, material: Enum.Material?): Part
+		return part({ Name = name, Parent = model, Size = size, CFrame = where, Color = color, Material = material or Enum.Material.SmoothPlastic })
+	end
+	-- A board running between two local points (roof slopes, braces)
+	local function span(name: string, from: Vector3, to: Vector3, width: number, thickness: number, color: Color3, material: Enum.Material?): Part
+		local a, b = at(from.X, from.Y, from.Z).Position, at(to.X, to.Y, to.Z).Position
+		return add(name, Vector3.new(width, thickness, (b - a).Magnitude), CFrame.lookAt((a + b) / 2, b), color, material)
+	end
+	local function lantern(x: number, y: number, z: number)
+		add("LanternCap", Vector3.new(1.1, 0.3, 1.1), at(x, y + 0.65, z), C.ink, Enum.Material.Metal)
+		local glass = add("Lantern", Vector3.new(0.8, 1, 0.8), at(x, y, z), if place.realm == "ember" then Color3.fromRGB(255, 150, 70) else Color3.fromRGB(255, 220, 140), Enum.Material.Neon)
+		glass.CanCollide = false
+		K.glow(glass, Color3.fromRGB(255, 200, 130), 12, 1)
+	end
+	local frost = place.realm == "frost"
 
-	Layout.claim(at(0, 0, 2).Position, 11)
-	part({ Name = "Floor", Parent = model, Size = Vector3.new(18, 0.5, 12), CFrame = at(0, 0.25, 2), Color = C.wood, Material = Enum.Material.WoodPlanks })
-	local counter = part({ Name = "Counter", Parent = model, Size = Vector3.new(13, 3.4, 2.6), CFrame = at(0, 2.2, -2), Color = C.wood, Material = Enum.Material.WoodPlanks })
-	part({ Name = "CounterTop", Parent = model, Size = Vector3.new(13.6, 0.4, 3.2), CFrame = at(0, 4.1, -2), Color = roof, Material = Enum.Material.SmoothPlastic })
-	part({ Name = "BackWall", Parent = model, Size = Vector3.new(18, 11, 0.8), CFrame = at(0, 5.75, 7.6), Color = C.white, Material = Enum.Material.WoodPlanks })
-	for _, x in { -8.6, 8.6 } do
-		part({ Name = "Post", Parent = model, Size = Vector3.new(0.9, 11, 0.9), CFrame = at(x, 5.75, -3.2), Color = C.woodDark, Material = Enum.Material.Wood })
+	Layout.claim(at(0, 0, 1.5).Position, 12)
+
+	-- Stone base, plank deck and a front step
+	add("Plinth", Vector3.new(20, 1, 15), at(0, 0.5, 1.5), STONE, Enum.Material.Cobblestone)
+	add("Deck", Vector3.new(19, 0.2, 14), at(0, 1.1, 1.5), C.wood, Enum.Material.WoodPlanks)
+	add("Step", Vector3.new(8, 0.7, 1.4), at(0, 0.35, -6.7), STONE, Enum.Material.Cobblestone)
+
+	-- Counter, with a stripe in the shop's colour
+	local counter = add("Counter", Vector3.new(13, 3.4, 2.6), at(0, FLOOR + 1.7, -2), C.wood, Enum.Material.WoodPlanks)
+	add("CounterTop", Vector3.new(13.6, 0.4, 3.2), at(0, FLOOR + 3.6, -2), roof)
+	add("CounterStripe", Vector3.new(13.2, 0.6, 0.2), at(0, FLOOR + 2.3, -3.35), roof)
+
+	-- Crates of the shop's goods along the back (the Workshop's forge takes the left side)
+	local left, right = -6, 6
+	if place.panel == "craft" then
+		left = -1
 	end
-	-- Shelves with crates of the shop's goods
 	for i, goodId in crates do
-		local x = -6 + (i - 1) * (12 / math.max(#crates - 1, 1))
-		part({ Name = "Crate", Parent = model, Size = Vector3.new(2.6, 2, 2), CFrame = at(x, 1.5, 6), Color = C.woodDark, Material = Enum.Material.WoodPlanks })
-		part({ Name = "Goods", Parent = model, Size = Vector3.new(2.2, 0.6, 1.6), CFrame = at(x, 2.7, 6), Color = goodColor[goodId] or roof, Material = Enum.Material.SmoothPlastic })
+		local x = left + (i - 1) * ((right - left) / math.max(#crates - 1, 1))
+		add("Crate", Vector3.new(2.4, 2, 2), at(x, FLOOR + 1, 6), C.woodDark, Enum.Material.WoodPlanks)
+		add("Goods", Vector3.new(2, 0.6, 1.6), at(x, FLOOR + 2.2, 6), goodColor[goodId] or roof)
 	end
-	-- Striped awning
-	for i = 0, 8 do
-		local stripe = if i % 2 == 0 then roof else C.white
-		part({ Name = "Awning", Parent = model, Size = Vector3.new(2.05, 0.35, 8), CFrame = at(-8.2 + i * 2.05, 11.4, 0.6) * CFrame.Angles(math.rad(14), 0, 0), Color = stripe, Material = Enum.Material.Fabric })
+
+	local signAt: CFrame
+	if place.panel == "market" then
+		-- Bazaar tent: striped poles, a draped back, a striped peaked roof
+		-- with a scalloped trim, flags and lanterns
+		for _, x in { -9, 9 } do
+			for _, z in { -5.6, 8.4 } do
+				local pole = add("Pole", Vector3.new(10.6, 0.8, 0.8), at(x, FLOOR + 5.3, z) * CFrame.Angles(0, 0, math.rad(90)), C.white)
+				pole.Shape = Enum.PartType.Cylinder
+				add("PoleBand", Vector3.new(0.9, 0.5, 0.9), at(x, FLOOR + 3, z), roof)
+				add("PoleBand", Vector3.new(0.9, 0.5, 0.9), at(x, FLOOR + 7, z), roof)
+			end
+		end
+		add("Drape", Vector3.new(17.4, 9.6, 0.3), at(0, FLOOR + 4.8, 8.6), Color3.fromRGB(250, 238, 210), Enum.Material.Fabric)
+		local eave, ridge, front, back, ridgeZ = FLOOR + 10.4, FLOOR + 15, -6.4, 9.4, 1.5
+		for i = 0, 8 do
+			local x = -8.2 + i * 2.05
+			local color = if i % 2 == 0 then roof else C.white
+			span("Roof", Vector3.new(x, eave, front), Vector3.new(x, ridge, ridgeZ), 2.05, 0.35, color, Enum.Material.Fabric)
+			span("Roof", Vector3.new(x, ridge, ridgeZ), Vector3.new(x, eave, back), 2.05, 0.35, color, Enum.Material.Fabric)
+			local scallop = part({ Name = "Scallop", Parent = model, Shape = Enum.PartType.Ball, Size = Vector3.one * 1.4, CFrame = at(x, eave - 0.2, front), Color = if i % 2 == 0 then C.white else roof, Material = Enum.Material.Fabric, CanCollide = false })
+			scallop.CastShadow = false
+		end
+		add("Ridge", Vector3.new(19, 0.5, 0.5), at(0, ridge + 0.15, ridgeZ), GOLD, Enum.Material.Metal)
+		if frost then
+			span("Snow", Vector3.new(0, ridge - 1.4, ridgeZ - 2.6), Vector3.new(0, ridge + 0.3, ridgeZ), 18.6, 0.5, SNOW, Enum.Material.Snow)
+			span("Snow", Vector3.new(0, ridge + 0.3, ridgeZ), Vector3.new(0, ridge - 1.4, ridgeZ + 2.6), 18.6, 0.5, SNOW, Enum.Material.Snow)
+		end
+		for _, x in { -8.5, 0, 8.5 } do
+			local h = if x == 0 then 3.4 else 2.6
+			add("FlagPole", Vector3.new(0.25, h, 0.25), at(x, ridge + h / 2, ridgeZ), C.woodDark)
+			local knob = part({ Name = "Finial", Parent = model, Shape = Enum.PartType.Ball, Size = Vector3.one * 0.7, CFrame = at(x, ridge + h + 0.2, ridgeZ), Color = GOLD, Material = Enum.Material.Metal })
+			knob.CastShadow = false
+			add("Flag", Vector3.new(2, 1.1, 0.1), at(x + 1.1, ridge + h - 0.6, ridgeZ), if x == 0 then GOLD else roof, Enum.Material.Fabric)
+		end
+		lantern(-9, FLOOR + 8.4, -6.3)
+		lantern(9, FLOOR + 8.4, -6.3)
+		-- Baskets of goods on the front corners of the deck
+		for i, x in { -7.6, 7.6 } do
+			K.barrel(model, at(x, FLOOR, -4.7), Color3.fromRGB(196, 150, 96))
+			local goods = part({ Name = "Goods", Parent = model, Shape = Enum.PartType.Ball, Size = Vector3.one * 1.7, CFrame = at(x, FLOOR + 2.5, -4.7), Color = goodColor[crates[i] or crates[1]] or roof })
+			goods.CastShadow = false
+		end
+		signAt = at(0, eave + 2.1, front - 0.5)
+	elseif place.panel == "craft" then
+		-- Timber-framed workshop: brick below, plaster above, dark beams, a
+		-- slate roof, a chimney and a glowing forge
+		local plaster, brick = Color3.fromRGB(246, 236, 214), Color3.fromRGB(176, 92, 70)
+		local top = FLOOR + 9.6
+		for _, x in { -9.5, 9.5 } do
+			add("WallBrick", Vector3.new(0.8, 3, 14), at(x, FLOOR + 1.5, 1.5), brick, Enum.Material.Brick)
+			add("WallPlaster", Vector3.new(0.8, 6.6, 14), at(x, FLOOR + 6.3, 1.5), plaster, Enum.Material.Plaster)
+			for _, z in { -5.4, 1.5, 8.4 } do
+				add("Beam", Vector3.new(1, 9.6, 1), at(x, FLOOR + 4.8, z), C.woodDark, Enum.Material.Wood)
+			end
+			add("Beam", Vector3.new(1, 0.7, 14.4), at(x, FLOOR + 3.2, 1.5), C.woodDark, Enum.Material.Wood)
+			add("Beam", Vector3.new(1, 0.7, 14.4), at(x, top, 1.5), C.woodDark, Enum.Material.Wood)
+			span("Brace", Vector3.new(x * 1.06, FLOOR + 3.5, -5), Vector3.new(x * 1.06, top - 0.4, 1.2), 0.6, 0.6, C.woodDark, Enum.Material.Wood)
+		end
+		add("BackBrick", Vector3.new(18.2, 3, 0.8), at(0, FLOOR + 1.5, 8.6), brick, Enum.Material.Brick)
+		add("BackPlaster", Vector3.new(18.2, 6.6, 0.8), at(0, FLOOR + 6.3, 8.6), plaster, Enum.Material.Plaster)
+		for _, x in { -4.5, 4.5 } do
+			add("Beam", Vector3.new(1, 9.6, 1), at(x, FLOOR + 4.8, 8.8), C.woodDark, Enum.Material.Wood)
+		end
+		add("Beam", Vector3.new(19.6, 0.7, 1), at(0, top, 8.8), C.woodDark, Enum.Material.Wood)
+		K.roof(model, at(0, FLOOR + 0.3, 1.5), 19.6, 14.4, 9.6, roof:Lerp(C.ink, 0.25), Enum.Material.Slate)
+		if frost then
+			for _, s in { -1, 1 } do
+				span("Snow", Vector3.new(0, top + 1.3, 1.5 + s * 7.4), Vector3.new(0, top + 5.9, 1.5), 21, 0.5, SNOW, Enum.Material.Snow)
+			end
+		end
+		local chimney = add("Chimney", Vector3.new(2.2, 8, 2.2), at(6, top + 4, 5.5), brick, Enum.Material.Brick)
+		add("ChimneyCap", Vector3.new(2.8, 0.5, 2.8), at(6, top + 8.2, 5.5), C.ink)
+		K.smoke(chimney, Color3.fromRGB(220, 220, 225), 3)
+		-- Forge in the back left, glowing
+		add("Forge", Vector3.new(4.4, 4, 3), at(-5.8, FLOOR + 2, 6.4), brick, Enum.Material.Brick)
+		add("ForgeTop", Vector3.new(4.8, 0.5, 3.4), at(-5.8, FLOOR + 4.2, 6.4), C.ink, Enum.Material.Metal)
+		local fire = add("ForgeFire", Vector3.new(2.4, 1.6, 0.3), at(-5.8, FLOOR + 1.8, 4.85), Color3.fromRGB(255, 130, 40), Enum.Material.Neon)
+		K.glow(fire, Color3.fromRGB(255, 140, 60), 14, 2)
+		-- Anvil and workbench at the front of the deck
+		local metal = Color3.fromRGB(70, 72, 82)
+		add("AnvilBase", Vector3.new(1, 1.4, 1), at(6.8, FLOOR + 0.7, -4.7), metal, Enum.Material.Metal)
+		add("Anvil", Vector3.new(2.4, 0.8, 1.1), at(6.8, FLOOR + 1.8, -4.7), metal, Enum.Material.Metal)
+		add("Hammer", Vector3.new(0.3, 0.3, 1.6), at(6.6, FLOOR + 2.35, -4.7) * CFrame.Angles(0, math.rad(30), 0), C.woodDark)
+		add("Bench", Vector3.new(3.4, 0.3, 1.6), at(-6.8, FLOOR + 2.2, -4.7), C.wood, Enum.Material.WoodPlanks)
+		for _, x in { -8.2, -5.4 } do
+			add("BenchLeg", Vector3.new(0.3, 2.1, 1.3), at(x, FLOOR + 1.05, -4.7), C.woodDark)
+		end
+		add("Saw", Vector3.new(1.8, 0.1, 0.6), at(-7, FLOOR + 2.4, -4.6), Color3.fromRGB(190, 194, 204), Enum.Material.Metal)
+		lantern(-9.5, FLOOR + 7.4, -6.2)
+		lantern(9.5, FLOOR + 7.4, -6.2)
+		signAt = at(0, top + 1.6, -6.9)
+	else
+		-- Explorer's outfitter: a canvas A-frame tent with a rack of
+		-- pickaxes (stone, iron, gold, crystal), backpacks and banners
+		local canvas = Color3.fromRGB(218, 198, 150)
+		local low, high = FLOOR + 5.6, FLOOR + 13
+		for _, s in { -1, 1 } do
+			span("Canvas", Vector3.new(s * 9.8, low, 1.5), Vector3.new(0, high, 1.5), 15, 0.3, canvas, Enum.Material.Fabric)
+			span("CanvasStripe", Vector3.new(s * 9.9, low + 0.15, 1.5), Vector3.new(s * 8.1, low + 1.45, 1.5), 15.1, 0.34, roof, Enum.Material.Fabric)
+			add("SideWall", Vector3.new(0.3, 5.6, 14), at(s * 9.6, FLOOR + 2.8, 1.5), canvas:Lerp(C.ink, 0.08), Enum.Material.Fabric)
+			if frost then
+				span("Snow", Vector3.new(s * 6, low + 3.3, 1.5), Vector3.new(0, high + 0.3, 1.5), 15.2, 0.5, SNOW, Enum.Material.Snow)
+			end
+		end
+		-- Back gable, stepped to fill the triangle
+		for i = 1, 5 do
+			local frac = 1 - (i - 0.5) / 5
+			add("BackCanvas", Vector3.new(19.2 * frac, (high - low) / 5, 0.3), at(0, low + (i - 0.5) * (high - low) / 5, 8.6), canvas:Lerp(C.ink, 0.08), Enum.Material.Fabric)
+		end
+		add("BackCanvas", Vector3.new(19.2, low - FLOOR, 0.3), at(0, (low + FLOOR) / 2, 8.6), canvas:Lerp(C.ink, 0.08), Enum.Material.Fabric)
+		add("RidgePole", Vector3.new(0.6, 0.6, 16.4), at(0, high + 0.2, 1.5), C.woodDark, Enum.Material.Wood)
+		for _, z in { -6.2, 9 } do
+			add("TentPole", Vector3.new(0.6, high - FLOOR, 0.6), at(0, (high + FLOOR) / 2, z), C.woodDark, Enum.Material.Wood)
+		end
+		-- Pickaxe rack on the back wall: one head per gear tier
+		add("Rack", Vector3.new(12, 4.2, 0.3), at(0, FLOOR + 6, 8.2), C.wood, Enum.Material.WoodPlanks)
+		local heads = { Color3.fromRGB(150, 146, 140), Color3.fromRGB(196, 200, 214), GOLD, Color3.fromRGB(120, 230, 255) }
+		for i, color in heads do
+			local x = -4.5 + (i - 1) * 3
+			add("Handle", Vector3.new(0.3, 3.4, 0.3), at(x, FLOOR + 5.8, 7.9), C.woodDark)
+			local head = add("PickHead", Vector3.new(2.4, 0.5, 0.4), at(x, FLOOR + 7.4, 7.9), color, if i == 4 then Enum.Material.Neon else Enum.Material.Metal)
+			head.CanCollide = false
+		end
+		-- Backpacks hanging on the side walls
+		local packs = { Color3.fromRGB(200, 70, 60), Color3.fromRGB(70, 130, 210), Color3.fromRGB(90, 170, 80) }
+		for i, color in packs do
+			local x, z = if i == 2 then 9.1 else -9.1, if i == 3 then 4.5 else 2
+			add("Backpack", Vector3.new(1, 2.4, 1.8), at(x, FLOOR + 4.2, z), color, Enum.Material.Fabric)
+			add("BackpackFlap", Vector3.new(1.1, 0.9, 1.9), at(x, FLOOR + 5, z), color:Lerp(C.ink, 0.25), Enum.Material.Fabric)
+		end
+		-- Banner poles at the front corners, with the sign hung between them
+		for _, x in { -9.8, 9.8 } do
+			add("BannerPole", Vector3.new(0.5, 15, 0.5), at(x, FLOOR + 7.5, -6.6), C.woodDark, Enum.Material.Wood)
+			add("Banner", Vector3.new(0.15, 3.6, 2), at(x, FLOOR + 12.6, -5.5), roof, Enum.Material.Fabric)
+			local knob = part({ Name = "Finial", Parent = model, Shape = Enum.PartType.Ball, Size = Vector3.one * 0.8, CFrame = at(x, FLOOR + 15.2, -6.6), Color = GOLD, Material = Enum.Material.Metal })
+			knob.CastShadow = false
+		end
+		add("SignBar", Vector3.new(19.6, 0.4, 0.4), at(0, FLOOR + 14.4, -6.6), C.woodDark, Enum.Material.Wood)
+		lantern(0, FLOOR + 10.6, -5.6)
+		K.barrel(model, at(-7.6, FLOOR, -4.7))
+		K.barrel(model, at(7.6, FLOOR, -4.7))
+		signAt = at(0, FLOOR + 12.6, -6.9)
 	end
-	local board = part({ Name = "SignBoard", Parent = model, Size = Vector3.new(14, 3.2, 0.5), CFrame = at(0, 13.6, -3.4), Color = roof, Material = Enum.Material.SmoothPlastic })
+
+	local board = add("SignBoard", Vector3.new(13, 2.8, 0.5), signAt, roof)
+	add("SignTrim", Vector3.new(13.6, 3.4, 0.3), signAt * CFrame.new(0, 0, 0.3), GOLD, Enum.Material.Metal)
 	boardText(board, `{place.icon} {place.name:upper()}`, Color3.new(1, 1, 1))
 	model.PrimaryPart = counter
 
-	shopkeeper(model, at(0, 4.4, 1.6), roof, keeper, style)
+	shopkeeper(model, at(0, FLOOR + 3.9, 1.6), roof, keeper, style)
 	billboard(counter, keeper, Color3.new(1, 1, 1), 5.6, 7)
 
 	local p = prompt(counter, `Open {place.name}`, keeper, 0, 14)
@@ -848,16 +1175,51 @@ local ZONE_SIGN_COLORS: { [string]: Color3 } = {
 	ember_lair = Color3.fromRGB(200, 50, 60),
 }
 
+-- A gathering spot: hold its prompt to gather. After `charges` gathers it
+-- disappears for a while, then grows back.
+type NodeStyle = { object: string, action: string, charges: number, build: NodeBuilder, hold: number?, respawn: number?, label: string?, depth: number? }
+local function gatherNode(parent: Instance, goodId: string, at: CFrame, style: NodeStyle, rng: Random, onGather: GatherHandler)
+	local model = Instance.new("Model")
+	model.Name = style.object
+	model.Parent = parent
+	local main = style.build(model, at, rng)
+	for _, d in model:GetDescendants() do
+		if d:IsA("BasePart") then
+			d:SetAttribute("Collide", d.CanCollide)
+		end
+	end
+	sparkle(main, goodColor[goodId])
+
+	local good = goodsById[goodId]
+	local p = prompt(main, style.action, style.label or `{good.icon} {style.object}`, style.hold or HOLD_SECONDS, 10)
+	p:SetAttribute("Good", goodId)
+	local node: Node = { goodId = goodId, prompt = p, depth = style.depth }
+	local charges = style.charges
+	local saved: { [BasePart]: number } = {}
+
+	p.Triggered:Connect(function(player)
+		if charges <= 0 or not onGather(player, node) then
+			return
+		end
+		charges -= 1
+		if charges <= 0 then
+			p.Enabled = false
+			setVisible(model, false, saved)
+			task.delay(style.respawn or RESPAWN_SECONDS, function()
+				charges = style.charges
+				setVisible(model, true, saved)
+				p.Enabled = true
+			end)
+		end
+	end)
+end
+
 local function buildZone(place: Places.Place, onGather: GatherHandler)
 	local style = styles[place.id]
 	local zoneFolder = folder(place.name:upper())
 	local goodId = place.good :: string
 
 	floorDisc(zoneFolder, "ZoneGround", place.center, place.radius * 2 + 6, LAYER.zone, style.ground, style.groundMaterial)
-	local grassy = place.realm == "main"
-	if grassy then
-		bareDisc(place.center, place.radius + 1)
-	end
 	fence(zoneFolder, place, style.fence)
 	gateArch(zoneFolder, place, ZONE_SIGN_COLORS[place.id])
 
@@ -866,7 +1228,7 @@ local function buildZone(place: Places.Place, onGather: GatherHandler)
 	local center = Places.centerOf(place)
 	local start = center + (gate - center).Unit * 23
 	local pathEnd = gate - Places.towardHub(place) * 4
-	strip(zoneFolder, start, pathEnd, 9, C.path, Enum.Material.Pavement, LAYER.path, grassy)
+	strip(zoneFolder, start, pathEnd, 9, PATH_COLORS[place.realm] or C.path)
 	local along = gate - start
 	local steps = math.floor(along.Magnitude / 16)
 	local side = Vector3.new(-along.Unit.Z, 0, along.Unit.X)
@@ -949,39 +1311,268 @@ local function buildZone(place: Places.Place, onGather: GatherHandler)
 		end
 		if ok then
 			table.insert(placed, pos)
-			local model = Instance.new("Model")
-			model.Name = style.object
-			model.Parent = zoneFolder
-			local main = style.build(model, CFrame.new(pos) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0), rng)
-			for _, d in model:GetDescendants() do
-				if d:IsA("BasePart") then
-					d:SetAttribute("Collide", d.CanCollide)
+			gatherNode(zoneFolder, goodId, CFrame.new(pos) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0), style, rng, onGather)
+		end
+	end
+end
+
+-- Deep Mine -----------------------------------------------------------------------------
+-- Every world has a mine lift on the surface and five cavern levels below it.
+-- The lift's prompt opens the Mine panel (pick a level); the server checks
+-- you're equipped for that depth (Rules.depthBlock) and moves you down.
+
+type MineLook = { rock: Color3, rockMaterial: Enum.Material, floor: Color3, timber: Color3, accent: Color3, snow: boolean, lava: boolean }
+local MINE_LOOKS: { [string]: MineLook } = {
+	main = { rock = Color3.fromRGB(132, 112, 96), rockMaterial = Enum.Material.Slate, floor = Color3.fromRGB(112, 92, 78), timber = C.woodDark, accent = Color3.fromRGB(255, 200, 90), snow = false, lava = false },
+	frost = { rock = Color3.fromRGB(150, 176, 204), rockMaterial = Enum.Material.Glacier, floor = Color3.fromRGB(120, 144, 172), timber = Color3.fromRGB(96, 74, 60), accent = Color3.fromRGB(150, 220, 255), snow = true, lava = false },
+	ember = { rock = Color3.fromRGB(70, 50, 50), rockMaterial = Enum.Material.Basalt, floor = Color3.fromRGB(56, 40, 40), timber = Color3.fromRGB(70, 46, 36), accent = Color3.fromRGB(255, 120, 40), snow = false, lava = true },
+}
+
+local function mineLantern(parent: Instance, cf: CFrame, look: MineLook, range: number)
+	part({ Name = "LanternCap", Parent = parent, Size = Vector3.new(1.1, 0.3, 1.1), CFrame = cf * CFrame.new(0, 0.65, 0), Color = C.ink, Material = Enum.Material.Metal })
+	local glass = part({ Name = "Lantern", Parent = parent, Size = Vector3.new(0.8, 1, 0.8), CFrame = cf, Color = look.accent, Material = Enum.Material.Neon, CanCollide = false })
+	K.glow(glass, look.accent, range, 1.4)
+end
+
+-- A lump of rock studded with chunks of the ores this level turns up, picked
+-- at random with the level's odds (rarer ores glow).
+local function oreVein(rock: Color3, realmId: string, depth: number): NodeBuilder
+	return function(model: Model, at: CFrame, rng: Random): BasePart
+		local s = rng:NextNumber(3.8, 4.8)
+		local main = part({ Name = "Rock", Parent = model, Size = Vector3.new(s, s * 0.8, s), CFrame = at * CFrame.new(0, s * 0.3, 0) * CFrame.Angles(rng:NextNumber(-0.25, 0.25), rng:NextNumber(0, math.pi), rng:NextNumber(-0.25, 0.25)), Color = rock, Material = Enum.Material.Slate })
+		for i = 1, 6 do
+			local a = i / 6 * math.pi * 2 + rng:NextNumber(-0.3, 0.3)
+			local r = s * rng:NextNumber(0.32, 0.45)
+			local size = rng:NextNumber(0.8, 1.4)
+			local ore = Rules.rollOre(realmId, depth, rng:NextNumber())
+			part({ Name = "Ore", Parent = model, Size = Vector3.new(size, size * 1.3, size), CFrame = at * CFrame.new(math.cos(a) * r, s * rng:NextNumber(0.35, 0.75), math.sin(a) * r) * CFrame.Angles(rng:NextNumber(0, 3), rng:NextNumber(0, 3), rng:NextNumber(0, 3)), Color = Color3.fromHex(ore.color), Material = if (ore.tier or 1) >= 3 then Enum.Material.Neon else Enum.Material.Metal, CanCollide = false })
+		end
+		return main
+	end
+end
+
+-- The mine lift on the surface: a timber headframe with a pulley over a lift
+-- cage, built into a rocky hill, with rails, a loaded cart and a cobble path
+-- from the plaza.
+local function buildMineEntrance(realmId: string)
+	local look = MINE_LOOKS[realmId] or MINE_LOOKS.main
+	local center = Places.CENTERS[realmId]
+	local at = Places.mineEntrance(realmId)
+	local m = group(root, "DeepMine")
+	local cf = CFrame.lookAt(at, Vector3.new(center.X, 0, center.Z)) -- front (-Z) faces the plaza
+	local function rel(x: number, y: number, z: number): CFrame
+		return cf * CFrame.new(x, y, z)
+	end
+	local toward = (Vector3.new(center.X, 0, center.Z) - at).Unit
+	Layout.claim(at - toward * 4, 15)
+
+	-- Path from the plaza
+	local start = center + (at - center).Unit * 23
+	local pathEnd = at + toward * 7
+	strip(m, start, pathEnd, 7, PATH_COLORS[realmId] or C.path)
+	Layout.claimLine(start, pathEnd, 4)
+
+	-- Rocky hill behind
+	local rng = Random.new(#realmId * 31)
+	for i = 0, 8 do
+		local a = (i / 8) * math.pi
+		local s = rng:NextNumber(9, 14)
+		local rock = part({ Name = "Hill", Parent = m, Size = Vector3.one * s, CFrame = rel(math.cos(a) * 9, s / 2 - 1.5 + math.sin(a) * 3, 6 + math.sin(a) * 4) * CFrame.Angles(rng:NextNumber(-0.2, 0.2), rng:NextNumber(0, math.pi), rng:NextNumber(-0.2, 0.2)), Color = look.rock:Lerp(C.ink, rng:NextNumber(0, 0.12)), Material = look.rockMaterial })
+		if look.snow then
+			part({ Name = "Snow", Parent = m, Size = Vector3.new(s * 0.8, 0.8, s * 0.8), CFrame = rock.CFrame * CFrame.new(0, s / 2, 0), Color = Color3.fromRGB(248, 252, 255), Material = Enum.Material.Snow })
+		end
+	end
+	if look.lava then
+		for _, x in { -6, 7 } do
+			local crack = part({ Name = "LavaCrack", Parent = m, Size = Vector3.new(0.6, 9, 0.6), CFrame = rel(x, 5, 1.2) * CFrame.Angles(0, 0, math.rad(x * 2)), Color = look.accent, Material = Enum.Material.Neon, CanCollide = false })
+			K.glow(crack, look.accent, 12, 1)
+		end
+	end
+	-- Dark tunnel behind the lift
+	part({ Name = "Tunnel", Parent = m, Size = Vector3.new(8, 9, 2), CFrame = rel(0, 4.5, 2.4), Color = Color3.fromRGB(14, 12, 16) })
+
+	-- Headframe: two tall legs with braces, a crossbeam and a pulley wheel
+	for _, x in { -4.5, 4.5 } do
+		part({ Name = "Leg", Parent = m, Size = Vector3.new(1, 19, 1), CFrame = rel(x, 9.5, 0), Color = look.timber, Material = Enum.Material.Wood })
+		part({ Name = "Brace", Parent = m, Size = Vector3.new(0.6, 12, 0.6), CFrame = rel(x, 6, -2.6) * CFrame.Angles(math.rad(-25), 0, 0), Color = look.timber, Material = Enum.Material.Wood })
+	end
+	part({ Name = "Crossbeam", Parent = m, Size = Vector3.new(11, 1, 1.2), CFrame = rel(0, 19, 0), Color = look.timber, Material = Enum.Material.Wood })
+	local wheel = part({ Name = "Pulley", Parent = m, Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.6, 4, 4), CFrame = rel(0, 20.4, 0), Color = Color3.fromRGB(80, 84, 96), Material = Enum.Material.Metal })
+	wheel.CanCollide = false
+	for _, x in { -1.6, 1.6 } do
+		part({ Name = "Cable", Parent = m, Size = Vector3.new(0.15, 12, 0.15), CFrame = rel(x, 14, 0), Color = C.ink, CanCollide = false })
+	end
+
+	-- Lift cage: platform, bars on three sides, a roof and the control lever
+	local metal = Color3.fromRGB(96, 100, 112)
+	part({ Name = "LiftFloor", Parent = m, Size = Vector3.new(7, 0.6, 6), CFrame = rel(0, 0.3, 0), Color = metal, Material = Enum.Material.DiamondPlate })
+	part({ Name = "LiftRoof", Parent = m, Size = Vector3.new(7.4, 0.5, 6.4), CFrame = rel(0, 8, 0), Color = metal, Material = Enum.Material.Metal })
+	for _, x in { -3.4, -1.7, 0, 1.7, 3.4 } do
+		part({ Name = "Bar", Parent = m, Size = Vector3.new(0.25, 7.4, 0.25), CFrame = rel(x, 4.2, 2.9), Color = metal, Material = Enum.Material.Metal })
+	end
+	for _, side in { -1, 1 } do
+		for _, z in { -2.8, -0.9, 0.9 } do
+			part({ Name = "Bar", Parent = m, Size = Vector3.new(0.25, 7.4, 0.25), CFrame = rel(side * 3.4, 4.2, z), Color = metal, Material = Enum.Material.Metal })
+		end
+	end
+	local lever = part({ Name = "LiftControls", Parent = m, Size = Vector3.new(1.4, 3.2, 1), CFrame = rel(-6.4, 1.6, -3.6), Color = look.accent:Lerp(C.ink, 0.3), Material = Enum.Material.Metal })
+	part({ Name = "Lever", Parent = m, Size = Vector3.new(0.25, 1.6, 0.25), CFrame = rel(-6.4, 3.6, -3.6) * CFrame.Angles(math.rad(-30), 0, 0), Color = C.ink })
+	part({ Name = "LeverKnob", Parent = m, Shape = Enum.PartType.Ball, Size = Vector3.one * 0.6, CFrame = rel(-6.4, 4.3, -4), Color = Color3.fromRGB(220, 50, 50) })
+	local p = prompt(lever, "Ride the Lift", "⛏️ Deep Mine", 0, 14)
+	p:SetAttribute("OpenPanel", "mine")
+	p.KeyboardKeyCode = Enum.KeyCode.E
+
+	-- Sign, lanterns, rails and a loaded cart out front
+	local board = part({ Name = "SignBoard", Parent = m, Size = Vector3.new(12, 2.8, 0.5), CFrame = rel(0, 16.6, -0.9), Color = look.timber:Lerp(Color3.new(1, 1, 1), 0.1), Material = Enum.Material.WoodPlanks })
+	boardText(board, "⛏️ DEEP MINE", Color3.new(1, 1, 1))
+	local tip = part({ Name = "TipBoard", Parent = m, Size = Vector3.new(9, 1.4, 0.3), CFrame = rel(0, 12.4, -0.8), Color = look.accent:Lerp(C.ink, 0.35) })
+	local upgrade = Upgrades.byId[Upgrades.DEPTH[realmId] or "gear"]
+	boardText(tip, `Better {upgrade.name} = deeper!`, Color3.new(1, 1, 1))
+	mineLantern(m, rel(-4.5, 10, -0.9), look, 16)
+	mineLantern(m, rel(4.5, 10, -0.9), look, 16)
+	K.rails(m, rel(4.8, 0, -3.5), 9)
+	local ore = Rules.oreAt(realmId, 1)
+	K.minecart(m, rel(4.8, 0, -6.5), if ore then Color3.fromHex(ore.color) else look.accent, false)
+end
+
+-- One cavern level of a world's mine: rock walls and ceiling, timber
+-- supports with lanterns, the lift back up, and veins of this level's ore.
+local function buildMineLevel(realmId: string, depth: number, onGather: GatherHandler)
+	local look = MINE_LOOKS[realmId] or MINE_LOOKS.main
+	local center = Places.mineLevel(realmId, depth)
+	local half = Places.MINE_HALF
+	local height = 24
+	local signature = Rules.oreAt(realmId, depth) :: Goods.Good -- the ore this level is best for, which tints it
+	local oreColor = Color3.fromHex(signature.color)
+	local dark = (depth - 1) / 4 -- deeper levels are darker and stranger
+	local rockColor = look.rock:Lerp(C.ink, 0.25 + dark * 0.35):Lerp(oreColor, 0.08 * depth)
+	local m = folder(`{realmId:upper()}_MINE_{depth}`)
+	local rng = Random.new(depth * 101 + #realmId)
+	local function at(x: number, y: number, z: number): CFrame
+		return CFrame.new(center + Vector3.new(x, y, z))
+	end
+
+	-- Floor, ceiling and walls (thick, so nothing shows through)
+	local span = half * 2 + 8
+	part({ Name = "Floor", Parent = m, Size = Vector3.new(span, 4, span), CFrame = at(0, -2, 0), Color = look.floor:Lerp(C.ink, 0.2 + dark * 0.3), Material = look.rockMaterial })
+	part({ Name = "Ceiling", Parent = m, Size = Vector3.new(span, 4, span), CFrame = at(0, height + 2, 0), Color = rockColor, Material = look.rockMaterial })
+	for _, side in { -1, 1 } do
+		part({ Name = "Wall", Parent = m, Size = Vector3.new(4, height + 8, span), CFrame = at(side * (half + 2), height / 2, 0), Color = rockColor, Material = look.rockMaterial })
+		part({ Name = "Wall", Parent = m, Size = Vector3.new(span, height + 8, 4), CFrame = at(0, height / 2, side * (half + 2)), Color = rockColor, Material = look.rockMaterial })
+	end
+	-- Lumpy rock along the walls, and stalactites
+	for _, side in { -1, 1 } do
+		for i = -3, 3 do
+			for _, alongX in { true, false } do
+				local s = rng:NextNumber(6, 10)
+				local along = i * 9.5 + rng:NextNumber(-2, 2)
+				if alongX and side == -1 and math.abs(along) < 10 then
+					continue -- the lift stands here
 				end
+				local pos = if alongX then Vector3.new(along, s * 0.3, side * (half - 0.5)) else Vector3.new(side * (half - 0.5), s * 0.3, along)
+				part({ Name = "WallRock", Parent = m, Size = Vector3.one * s, CFrame = at(pos.X, pos.Y, pos.Z) * CFrame.Angles(rng:NextNumber(0, 1), rng:NextNumber(0, 3), rng:NextNumber(0, 1)), Color = rockColor:Lerp(C.ink, rng:NextNumber(0, 0.15)), Material = look.rockMaterial })
 			end
-			sparkle(main, goodColor[goodId])
+		end
+	end
+	for _ = 1, 14 do
+		local x, z = rng:NextNumber(-half + 6, half - 6), rng:NextNumber(-half + 6, half - 6)
+		local h = rng:NextNumber(3, 7)
+		for k = 0, 2 do
+			local w = (3 - k) * 0.8
+			part({ Name = "Stalactite", Parent = m, Size = Vector3.new(w, h / 3, w), CFrame = at(x, height - k * h / 3 - h / 6, z) * CFrame.Angles(0, rng:NextNumber(0, 3), 0), Color = rockColor, Material = look.rockMaterial, CanCollide = false })
+		end
+	end
 
-			local good = goodsById[goodId]
-			local p = prompt(main, style.action, `{good.icon} {style.object}`, HOLD_SECONDS, 10)
-			p:SetAttribute("Good", goodId)
-			local node: Node = { goodId = goodId, prompt = p }
-			local charges = style.charges
-			local saved: { [BasePart]: number } = {}
+	-- Timber supports with lanterns
+	for _, x in { -14, 14 } do
+		for _, z in { -14, 14 } do
+			part({ Name = "Post", Parent = m, Size = Vector3.new(1, height, 1), CFrame = at(x, height / 2, z), Color = look.timber, Material = Enum.Material.Wood })
+			part({ Name = "Beam", Parent = m, Size = Vector3.new(1, 1, 8), CFrame = at(x, height - 1.5, z), Color = look.timber, Material = Enum.Material.Wood })
+			mineLantern(m, at(x, height - 3.2, z + 2.5), look, 28)
+		end
+	end
 
-			p.Triggered:Connect(function(player)
-				if charges <= 0 or not onGather(player, node) then
-					return
-				end
-				charges -= 1
-				if charges <= 0 then
-					p.Enabled = false
-					setVisible(model, false, saved)
-					task.delay(RESPAWN_SECONDS, function()
-						charges = style.charges
-						setVisible(model, true, saved)
-						p.Enabled = true
-					end)
-				end
+	-- The lift back up (and further down), by the north wall
+	local liftZ = -half + 5
+	local metal = Color3.fromRGB(96, 100, 112)
+	part({ Name = "LiftFloor", Parent = m, Size = Vector3.new(7, 0.6, 6), CFrame = at(0, 0.3, liftZ), Color = metal, Material = Enum.Material.DiamondPlate })
+	part({ Name = "LiftRoof", Parent = m, Size = Vector3.new(7.4, 0.5, 6.4), CFrame = at(0, 8, liftZ), Color = metal, Material = Enum.Material.Metal })
+	for _, x in { -3.4, 3.4 } do
+		for _, z in { -2.8, 0, 2.8 } do
+			part({ Name = "Bar", Parent = m, Size = Vector3.new(0.25, 7.4, 0.25), CFrame = at(x, 4.2, liftZ + z), Color = metal, Material = Enum.Material.Metal })
+		end
+		part({ Name = "Rail", Parent = m, Size = Vector3.new(0.6, height, 0.6), CFrame = at(x * 1.15, height / 2, liftZ - 2.6), Color = look.timber, Material = Enum.Material.Wood })
+	end
+	local controls = part({ Name = "LiftControls", Parent = m, Size = Vector3.new(1.4, 3.2, 1), CFrame = at(-4.8, 1.6, liftZ + 3.4), Color = look.accent:Lerp(C.ink, 0.3), Material = Enum.Material.Metal })
+	local p = prompt(controls, "Ride the Lift", "⛏️ Deep Mine", 0, 14)
+	p:SetAttribute("OpenPanel", "mine")
+	p.KeyboardKeyCode = Enum.KeyCode.E
+	local board = part({ Name = "DepthSign", Parent = m, Size = Vector3.new(16, 3, 0.5), CFrame = at(0, 12, -half + 0.6) * CFrame.Angles(0, math.pi, 0), Color = look.timber:Lerp(Color3.new(1, 1, 1), 0.1), Material = Enum.Material.WoodPlanks })
+	local icons = {}
+	for _, o in Rules.oreOdds(realmId, depth) do
+		table.insert(icons, o.good.icon)
+	end
+	boardText(board, `LEVEL {depth}  {table.concat(icons, " ")}`, Color3.new(1, 1, 1))
+
+	-- Rails and a cart across the floor, and the world's own touches
+	K.rails(m, at(-22, 0, 20) * CFrame.Angles(0, math.rad(-90), 0), 24)
+	K.minecart(m, at(-12, 0, 20) * CFrame.Angles(0, math.rad(90), 0), oreColor, depth >= 3)
+	local reserved: { { at: Vector3, r: number } } = {
+		{ at = Vector3.new(0, 0, liftZ), r = 9 },
+		{ at = Vector3.new(-12, 0, 20), r = 14 },
+	}
+	for _, x in { -14, 14 } do
+		for _, z in { -14, 14 } do
+			table.insert(reserved, { at = Vector3.new(x, 0, z), r = 2 })
+		end
+	end
+	local function extra(x: number, z: number, r: number, build: (CFrame) -> ())
+		table.insert(reserved, { at = Vector3.new(x, 0, z), r = r })
+		build(at(x, 0, z))
+	end
+	if look.lava then
+		for _, spot in { { half - 8, half - 8 }, { -half + 8, -half + 12 } } do
+			extra(spot[1], spot[2], 5, function(cf)
+				local pool = part({ Name = "LavaPool", Parent = m, Shape = Enum.PartType.Cylinder, Size = Vector3.new(0.4, 8, 8), CFrame = cf * CFrame.new(0, 0.05, 0) * CFrame.Angles(0, 0, math.rad(90)), Color = look.accent, Material = Enum.Material.Neon, CanCollide = false })
+				K.glow(pool, look.accent, 20, 1.5)
 			end)
+		end
+	elseif look.snow then
+		for _, spot in { { half - 8, half - 8 }, { -half + 8, -half + 12 } } do
+			extra(spot[1], spot[2], 4, function(cf)
+				K.crystalCluster(m, cf, Color3.fromRGB(170, 230, 255), 1.6, rng)
+			end)
+		end
+	else
+		extra(half - 8, half - 8, 4, function(cf)
+			K.barrel(m, cf)
+			K.barrel(m, cf * CFrame.new(2.2, 0, 0.6))
+		end)
+	end
+
+	-- Ore veins
+	local style: NodeStyle = { object = "Ore Vein", label = "⛏️ Ore Vein", action = "Mine", charges = 3, build = oreVein(rockColor:Lerp(Color3.new(1, 1, 1), 0.08), realmId, depth), hold = 0.8, respawn = 25, depth = depth }
+	local placed: { Vector3 } = {}
+	local attempts = 0
+	while #placed < 10 and attempts < 800 do
+		attempts += 1
+		local pos = Vector3.new(rng:NextNumber(-half + 7, half - 7), 0, rng:NextNumber(-half + 7, half - 7))
+		local ok = true
+		for _, other in placed do
+			if (other - pos).Magnitude < 9 then
+				ok = false
+				break
+			end
+		end
+		for _, spot in reserved do
+			if (spot.at - pos).Magnitude < spot.r + 4 then
+				ok = false
+				break
+			end
+		end
+		if ok then
+			table.insert(placed, pos)
+			gatherNode(m, (Rules.oreAt(realmId, 1) :: Goods.Good).id, at(pos.X, 0, pos.Z) * CFrame.Angles(0, rng:NextNumber(0, math.pi * 2), 0), style, rng, onGather)
 		end
 	end
 end
@@ -1207,6 +1798,7 @@ local function buildRealmBase(realmId: string)
 	local theme = THEMES[realmId]
 	local center = Places.CENTERS[realmId]
 	local base = folder(realmId:upper())
+	groundDisc(base, center, theme.ground)
 	floorDisc(base, "PlazaEdge", center + Vector3.new(0, 0, 4), 52, LAYER.plazaEdge, theme.pavingEdge, Enum.Material.Pavement)
 	floorDisc(base, "Plaza", center + Vector3.new(0, 0, 4), 48, LAYER.plaza, theme.paving, Enum.Material.Pavement)
 	slab({ Name = "ShopStreet", Parent = base, Size = Vector3.new(100, 1, 30), Position = center + Vector3.new(0, 0, -28), Color = theme.paving, Material = Enum.Material.Pavement }, LAYER.street)
@@ -1281,7 +1873,6 @@ function World.build(onGather: GatherHandler, onPortal: PortalHandler)
 	local rng = Random.new(2026)
 	local p = Places.byId
 	buildLighting()
-	buildTerrain()
 
 	-- Landmarks first: everything placed later keeps clear of them
 	Layout.claim(Places.LEADERBOARD, 8) -- built by Leaderboard.luau
@@ -1317,6 +1908,14 @@ function World.build(onGather: GatherHandler, onPortal: PortalHandler)
 		end
 	end
 
+	-- The Deep Mine in every world: the lift up top and five levels below
+	for _, realmId in { "main", "frost", "ember" } do
+		buildMineEntrance(realmId)
+		for depth = 1, Rules.MINE_DEPTHS do
+			buildMineLevel(realmId, depth, onGather)
+		end
+	end
+
 	-- Plaza props, then the plazas and shop streets themselves are taken
 	local accents = { main = Color3.fromRGB(150, 90, 220), frost = Color3.fromRGB(120, 200, 255), ember = Color3.fromRGB(255, 110, 50) }
 	for _, realmId in { "main", "frost", "ember" } do
@@ -1348,7 +1947,7 @@ function World.build(onGather: GatherHandler, onPortal: PortalHandler)
 			table.insert(sectors, { angle = angleTo("main", Places.PORTALS.frost), kind = "frostpeaks" })
 			table.insert(sectors, { angle = angleTo("main", Places.PORTALS.ember), kind = "volcano" })
 		end
-		Backdrop.build(root, realmId, sectors, rng)
+		Backdrop.build(root, realmId, sectors, THEMES[realmId].ground, rng)
 	end
 end
 

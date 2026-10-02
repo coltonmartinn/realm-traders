@@ -17,6 +17,10 @@ See [docs/DESIGN.md](docs/DESIGN.md) for why the game is built this way (researc
 - **Rebirths** (Expand Business): +25% on sales of goods you made, per rebirth.
 - **Portal worlds**: Frostpeak ❄️ (2 rebirths) and Emberfall 🔥 (5 rebirths). Each has its
   own coin, goods, recipes, upgrades, goals, shops and look.
+- **Deep Mine** in every world: ride the lift down five levels of caverns. Every swing
+  digs up a random ore, and deeper levels find rare, valuable ones far more often. How deep
+  you go depends on your Gear (Market Town), Thermal Gear (Frostpeak) or Fireproof Armor
+  (Emberfall). Rare legendary ores are announced to the server.
 - **Pets**: bought with each world's coin, they raise sale prices (later worlds' pets are
   stronger). Equip 3; they follow you around.
 - **Robux shop** (B): coin packs, an Exotic Egg with the best pets (shown odds, no
@@ -40,7 +44,9 @@ See [docs/DESIGN.md](docs/DESIGN.md) for why the game is built this way (researc
 | 6 | Beginner tutorial, shopkeeper outfits, Robux shop |
 | 7 | Portal worlds (Frostpeak, Emberfall), pets, Exotic Egg |
 | 8 | Themed zone scenery, layout so nothing overlaps, backdrops past the walls |
-| 9 | Terrain ground (no texture flicker), brighter palette |
+| 9 | Flicker-free smooth ground, cobblestone paths, themed shops, visible portals |
+| 10 | Golden Coin Monument centerpiece |
+| 11 | Deep Mine: five levels per world, random ores with better odds deeper, legendary finds |
 
 ## Before publishing
 
@@ -123,6 +129,7 @@ luau tests/rules.test.luau      # gather / craft / upgrade / goals / rebirth / d
 luau tests/lock.test.luau       # save session locking (no overwrites when hopping servers)
 luau sim/progression.luau       # minutes to each goal and rebirth for a good player
 luau sim/craft_arbitrage.luau   # profit from buy-inputs -> craft -> sell (should be thin)
+luau sim/mine_income.luau       # Deep Mine ore income vs surface gathering
 ```
 
 ## Layout
@@ -133,7 +140,7 @@ luau sim/craft_arbitrage.luau   # profit from buy-inputs -> craft -> sell (shoul
 | `src/server` | ServerScriptService.Server | Market state, price model, NPC traders, player data/saving, world builder (`World`, `Scenery`, `Backdrop`, `Layout`) |
 | `src/client` | StarterPlayerScripts.Client | HUD, Market / Workshop / Outfitter / Shop / Pets panels, guide, notifications |
 | (project file) | ReplicatedStorage.Shared.PriceModel | Same `PriceModel` file, so the client shows exact trade totals |
-| (project file) | ReplicatedStorage.Remotes | Requests: `TradeRequest`, `SellAllRequest`, `CraftRequest`, `UpgradeRequest`, `RebirthRequest`, `DailyRequest`, `CodeRequest`, `GiftRequest`, `QuestRequest`, `PetRequest`. Updates: `MarketUpdate`, `PlayerUpdate`, `Notify`, `News` |
+| (project file) | ReplicatedStorage.Remotes | Requests: `TradeRequest`, `SellAllRequest`, `CraftRequest`, `UpgradeRequest`, `RebirthRequest`, `DailyRequest`, `CodeRequest`, `GiftRequest`, `QuestRequest`, `PetRequest`, `MineRequest`. Updates: `MarketUpdate`, `PlayerUpdate`, `Notify`, `News` |
 | `sim/`, `tests/` | (not synced) | Offline simulation and tests |
 
 The map is built in code at server start (`src/server/World.luau`), so the place file needs nothing in it.

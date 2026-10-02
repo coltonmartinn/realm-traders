@@ -19,6 +19,7 @@
         "GiftRequest": { "$className": "RemoteEvent" },
         "QuestRequest": { "$className": "RemoteEvent" },
         "PetRequest": { "$className": "RemoteEvent" },
+        "MineRequest": { "$className": "RemoteEvent" },
         "MarketUpdate": { "$className": "RemoteEvent" },
         "PlayerUpdate": { "$className": "RemoteEvent" },
         "Notify": { "$className": "RemoteEvent" },

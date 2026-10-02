@@ -99,13 +99,49 @@ Frozen Lake; a lava lake behind the Magma Pits. Behind that, hills and a full ri
 of mountains close off the horizon. None of it can be reached or collided with.
 Every building and prop claims its own ground, so nothing overlaps. → `Backdrop.luau`, `Layout.luau`.
 
-**Ground that never flickers**. The ground is Terrain, which has a single surface,
-so overlapping pieces can't fight over which one draws on top. Grass gets swaying
-blades, and lakes are ice or glowing cracked lava. Each terrain material has one
-bright colour everywhere, so each look gets its own material. Flat floors on top
-(zone floors, paths, the street, the plaza) each have their own height, at least
-0.05 studs from the next, and grass under them is swapped for bare earth so blades
-don't poke through. → `World.buildTerrain`, `LAYER`.
+**Ground that never flickers**. Smooth, flat, bright colour, the clean cartoon look
+of Pet Simulator 99, with no busy texture to shimmer. Flicker (z-fighting) happens
+when two surfaces sit at nearly the same height, and the further away they are, the
+bigger the gap they need. So nothing overlaps the ground: each world is one disc,
+and the ring past the walls is tiled with exact slices (a rectangle plus a wedge
+each side) that meet edge to edge. Floors laid on top (zone floors, cobblestone
+paths with curbs, the street, the plaza) each have their own height, at least
+0.1 studs from the next; distant lakes and fields sit 0.4 up. Shops stand on raised
+stone bases so their decks never share a plane with the street.
+→ `World.LAYER`, `Backdrop.groundSlice`.
+
+**Themed shops and visible portals**. The Market is a striped bazaar tent, the
+Workshop a timber-framed forge with a smoking chimney, and the Outfitter an
+explorer's tent with a pickaxe rack showing each gear tier. Portals stand either
+side of the Market, straight ahead of where you spawn.
+
+**The Deep Mine** (every world). A mine lift on the surface takes you down to five
+cavern levels. Every swing digs up a random ore, a small RNG moment like
+Grow a Garden's mutations. Any level can turn up any of the world's five ores, but
+deeper levels make the good ones the norm:
+
+| Level | Common → rarest (Market Town: 🔸 Copper $15, 🔘 Silver $50, 🔶 Gold $150, 💚 Emerald $400, 💙 Sapphire $1,200) |
+|---|---|
+| 1 | 80% · 16% · 3.5% · 0.45% · 0.05% |
+| 2 | 45% · 32% · 16% · 5% · 2% |
+| 3 | 15% · 27% · 33% · 17% · 8% |
+| 4 | 5% · 15% · 30% · 32% · 18% |
+| 5 | 2% · 6% · 17% · 35% · 40% |
+
+How deep you can go depends on how strong you are in that world:
+- Market Town: your Gathering Gear (tools), level for level.
+- Frostpeak: cold-proof Thermal Gear.
+- Emberfall: Fireproof Armor.
+
+Everyone can mine level 1. Each vein shows chunks of the ores its level turns up, and
+rare finds get their own toast. Ores come one per swing (not multiplied by gear) with
+a longer hold, and markets stock few of the rare ones. `sim/mine_income.luau` rolls
+real swings through the market. Per swing, a level pays about 2× surface gathering
+at the same gear, and more over time because sales spread across five markets.
+Each world also has a legendary ore (🌟 Starstone, 💫 Aurora Heart, 🌞 Sun Core).
+Every swing has a 0.2% chance per level down to find one (1% on level 5), and finds
+are announced to the server. All ores buy and sell in that world's market.
+→ `Rules.ORE_ODDS`, `Rules.rollOre`, `Rules.mine`, `World.buildMineLevel`, `MinePanel.luau`.
 
 **Robux shop** (coin packs and timed boosts, as in most top simulators). 🛍️ button
 on the right, hotkey B. Coin packs give more coins per Robux the bigger they are,

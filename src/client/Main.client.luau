@@ -18,6 +18,7 @@ local MarketPanel = require(script.Parent.MarketPanel)
 local QuestPanel = require(script.Parent.QuestPanel)
 local NewsBar = require(script.Parent.NewsBar)
 local PetPanel = require(script.Parent.PetPanel)
+local MinePanel = require(script.Parent.MinePanel)
 local ShopPanel = require(script.Parent.ShopPanel)
 local Sounds = require(script.Parent.Sounds)
 local Store = require(script.Parent.Store)
@@ -47,6 +48,7 @@ Window.register("quests", QuestPanel.new())
 Window.register("collection", CollectionPanel.new())
 Window.register("shop", ShopPanel.new())
 Window.register("pets", PetPanel.new())
+Window.register("mine", MinePanel.new())
 Travel.init(gui)
 Guide.init()
 Helpers.init()
@@ -312,4 +314,22 @@ task.spawn(function()
 		end
 		task.wait(0.25)
 	end
+end)
+
+-- The hub centerpiece's coin and crystals turn here, on each client: smooth,
+-- and nothing to send over the network. Any Model under it with a "Spin"
+-- attribute (radians per second) turns about its pivot.
+task.spawn(function()
+	local piece = workspace:WaitForChild("World"):WaitForChild("Hub"):WaitForChild("Centerpiece")
+	local spinning: { Model } = {}
+	for _, d in piece:GetDescendants() do
+		if d:IsA("Model") and type(d:GetAttribute("Spin")) == "number" then
+			table.insert(spinning, d)
+		end
+	end
+	game:GetService("RunService").RenderStepped:Connect(function(dt)
+		for _, m in spinning do
+			m:PivotTo(m:GetPivot() * CFrame.Angles(0, (m:GetAttribute("Spin") :: number) * dt, 0))
+		end
+	end)
 end)

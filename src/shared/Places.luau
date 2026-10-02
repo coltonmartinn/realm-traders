@@ -95,10 +95,11 @@ Places.MERCHANT = Vector3.new(-17, 0, 42) -- open grass between the Farm and Cav
 Places.LEADERBOARD = Vector3.new(-49, 0, 24)
 local HUB_PET_SHOP = Vector3.new(49, 0, 24)
 
--- Portals in the hub to each world, beside the shop street.
+-- Portals in the hub to each world: in the gaps either side of the Market,
+-- straight ahead of where you spawn, so they're the first thing you see.
 Places.PORTALS = {
-	frost = Vector3.new(-72, 0, -32),
-	ember = Vector3.new(72, 0, -32),
+	frost = Vector3.new(-22, 0, -46),
+	ember = Vector3.new(22, 0, -46),
 } :: { [string]: Vector3 }
 
 -- Where you arrive in a world (just in front of its plaza).
@@ -114,9 +115,34 @@ function Places.petShop(realm: string): Vector3
 	return CENTERS[realm] + Vector3.new(-36, 0, 38)
 end
 
--- The portal home, opposite each portal world's pet shop.
+-- The portal home: beside the Market, in view from where you arrive.
 function Places.homePortal(realm: string): Vector3
-	return (CENTERS[realm] or CENTERS.main) + Vector3.new(36, 0, 38)
+	return (CENTERS[realm] or CENTERS.main) + Vector3.new(22, 0, -46)
+end
+
+-- The Deep Mine: an entrance (a mine lift) in every world, on open grass
+-- between the paths, and five cavern levels straight below it.
+local MINE_ENTRANCE = Vector3.new(44, 0, 104)
+local MINE_LEVEL_GAP = 70 -- studs between levels
+local MINE_TOP = -60 -- floor of level 1
+Places.MINE_HALF = 34 -- each cavern's floor runs this far from its middle
+
+function Places.mineEntrance(realm: string): Vector3
+	return (CENTERS[realm] or CENTERS.main) + MINE_ENTRANCE
+end
+
+-- The middle of a mine level's floor.
+function Places.mineLevel(realm: string, depth: number): Vector3
+	return (CENTERS[realm] or CENTERS.main) + MINE_ENTRANCE + Vector3.new(0, MINE_TOP - (depth - 1) * MINE_LEVEL_GAP, 0)
+end
+
+-- Which mine level a position is on (nil above ground).
+function Places.mineDepthAt(position: Vector3): number?
+	if position.Y > MINE_TOP + 40 then
+		return nil
+	end
+	local depth = math.floor((MINE_TOP + 30 - position.Y) / MINE_LEVEL_GAP) + 1
+	return math.clamp(depth, 1, 5)
 end
 
 -- Which world a position is in.

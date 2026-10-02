@@ -86,7 +86,7 @@ local function pickGood(): string
 	end
 	local best, bestValue = "wood", 0
 	for _, g in Goods do
-		if g.realm == "main" and g.raw and Rules.lockReason(p, p, g.gearLevel, g.rebirths) == nil then
+		if g.realm == "main" and g.raw and not g.tier and not g.legendary and Rules.lockReason(p, p, g.gearLevel, g.rebirths) == nil then
 			local v = bid(g.id) / (GATHER_SECONDS + NODE_WALK / CHARGES[g.id])
 			if v > bestValue then
 				best, bestValue = g.id, v

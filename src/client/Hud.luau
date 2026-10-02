@@ -48,7 +48,7 @@ function Hud.init(gui: ScreenGui)
 		Parent = gui,
 		AnchorPoint = Vector2.new(0.5, 0),
 		Position = UDim2.new(0.5, 0, 0, 6),
-		Size = UDim2.fromOffset(760, 52),
+		Size = UDim2.fromOffset(900, 52),
 		BackgroundTransparency = 1,
 	}, { Ui.list(Enum.FillDirection.Horizontal, 8, Enum.HorizontalAlignment.Center) })
 	Ui.autoScale(travel)
@@ -77,6 +77,19 @@ function Hud.init(gui: ScreenGui)
 				travelRealm[b] = realm.id
 			end
 		end
+		travelCount += 1
+		local mine = Ui.button({
+			text = "⛏️ Deep Mine",
+			color = "orange",
+			parent = travel,
+			layoutOrder = travelCount,
+			size = UDim2.fromOffset(128, 44),
+			textSize = 17,
+			onClick = function()
+				Travel.toMine()
+			end,
+		})
+		travelRealm[mine] = realm.id
 		travelCount += 1
 		-- Last button: the portals (in the hub) or the way home (in a world)
 		local extra = Ui.button({

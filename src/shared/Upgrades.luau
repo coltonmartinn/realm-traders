@@ -9,14 +9,17 @@ export type Upgrade = {
 	description: string,
 	unit: string, -- what value measures, for the UI
 	levels: { { cost: number, value: number } },
+	realms: { string }?, -- only sold in these worlds (all worlds when missing)
 }
+
+local Upgrades = {}
 
 local list: { Upgrade } = {
 	{
 		id = "gear",
 		name = "Gathering Gear",
 		icon = "⛏️",
-		description = "More per gather. Higher levels open new zones.",
+		description = "More per gather. Each level opens new zones and a deeper level of the mine.",
 		unit = "per gather",
 		levels = {
 			{ cost = 0, value = 1 },
@@ -57,12 +60,46 @@ table.insert(list, {
 	},
 })
 
+-- Protective gear for the Deep Mine in the cold and fire worlds: each level
+-- lets you go one mine level deeper there (in Market Town, your Gear does that).
+table.insert(list, {
+	id = "thermal",
+	name = "Thermal Gear",
+	icon = "🧥",
+	description = "Cold-proof clothing. Each level lets you mine one level deeper.",
+	unit = "mine depth",
+	realms = { "frost" },
+	levels = {
+		{ cost = 0, value = 1 },
+		{ cost = 300, value = 2 },
+		{ cost = 2000, value = 3 },
+		{ cost = 8000, value = 4 },
+		{ cost = 25000, value = 5 },
+	},
+})
+table.insert(list, {
+	id = "fireproof",
+	name = "Fireproof Armor",
+	icon = "🛡️",
+	description = "Heat-proof armor. Each level lets you mine one level deeper.",
+	unit = "mine depth",
+	realms = { "ember" },
+	levels = {
+		{ cost = 0, value = 1 },
+		{ cost = 300, value = 2 },
+		{ cost = 2000, value = 3 },
+		{ cost = 8000, value = 4 },
+		{ cost = 25000, value = 5 },
+	},
+})
+
+-- Which upgrade sets how deep you can mine in each world (its level = the deepest level).
+Upgrades.DEPTH = { main = "gear", frost = "thermal", ember = "fireproof" } :: { [string]: string }
+
 local byId: { [string]: Upgrade } = {}
 for _, u in list do
 	byId[u.id] = u
 end
-
-local Upgrades = {}
 
 Upgrades.list = list
 Upgrades.byId = byId
@@ -81,6 +118,12 @@ end
 
 -- Upgrades that belong to the player rather than a world (bought in the hub).
 Upgrades.GLOBAL = { helper = true } :: { [string]: boolean }
+
+-- Whether upgradeId is sold in a world.
+function Upgrades.availableIn(id: string, realmId: string): boolean
+	local realms = byId[id].realms
+	return realms == nil or table.find(realms, realmId) ~= nil
+end
 
 function Upgrades.maxLevel(id: string): number
 	return #byId[id].levels

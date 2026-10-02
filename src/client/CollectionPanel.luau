@@ -41,7 +41,7 @@ function CollectionPanel.new()
 		AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	}, { Ui.list(Enum.FillDirection.Vertical, 8), Ui.padding(2, 2) })
 
-	type Cell = { gradient: UIGradient, label: TextLabel, key: string, variant: string }
+	type Cell = { gradient: UIGradient, label: TextLabel, ore: ViewportFrame?, key: string, variant: string }
 	local cells: { Cell } = {}
 	for i, good in Goods do
 		local row = Ui.card({ Parent = list, LayoutOrder = i, Size = UDim2.new(1, -12, 0, 48), Radius = 12 }, true)
@@ -55,7 +55,8 @@ function CollectionPanel.new()
 			}, { Ui.corner(10), Ui.stroke(Theme.ink, 2) })
 			local gradient = Ui.new("UIGradient", { Parent = cell, Rotation = if variant == "Rainbow" then 0 else 90 })
 			local label = Ui.text({ Parent = cell, Size = UDim2.fromScale(1, 1), TextSize = 24 })
-			table.insert(cells, { gradient = gradient, label = label, key = Rules.collectionKey(good.id, variant), variant = variant })
+			local ore = if Ui.isOre(good) then Ui.oreIcon(cell, Color3.fromHex(good.color), (good.tier or 5) >= 3) else nil
+			table.insert(cells, { gradient = gradient, label = label, ore = ore, key = Rules.collectionKey(good.id, variant), variant = variant })
 			label:SetAttribute("Icon", good.icon)
 		end
 	end
@@ -71,7 +72,10 @@ function CollectionPanel.new()
 			local has = p.collection[cell.key] == true
 			if has then
 				found += 1
-				cell.label.Text = cell.label:GetAttribute("Icon") :: string
+				if cell.ore then
+					cell.ore.Visible = true
+				end
+				cell.label.Text = if cell.ore then "" else cell.label:GetAttribute("Icon") :: string
 				if cell.variant == "Rainbow" then
 					cell.gradient.Color = RAINBOW
 				else
@@ -80,6 +84,9 @@ function CollectionPanel.new()
 				end
 			else
 				cell.label.Text = "❓"
+				if cell.ore then
+					cell.ore.Visible = false
+				end
 				local pair = Theme.colors.grey
 				cell.gradient.Color = ColorSequence.new(pair.top, pair.bottom)
 			end

@@ -17,7 +17,7 @@ end
 
 -- Every bad request must return nil and leave wallet and market untouched.
 local badRequests = {
-	{ "unknown good", "gold", "buy", 1 },
+	{ "unknown good", "unobtainium", "buy", 1 },
 	{ "numeric good", 1, "buy", 1 },
 	{ "nil good", nil, "buy", 1 },
 	{ "table good", {}, "buy", 1 },

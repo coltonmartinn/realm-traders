@@ -178,7 +178,7 @@ local function showBanner(notice: Notice)
 	gradient.Parent = card
 	local header = notice.header or "⭐ GOAL COMPLETE! ⭐"
 	if notice.kind == "lucky" then
-		header = "LUCKY FIND!"
+		header = notice.header or "LUCKY FIND!"
 		Sounds.play("coins")
 		if notice.rarity == "Rainbow" then
 			gradient.Rotation = 0

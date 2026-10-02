@@ -360,11 +360,137 @@ function Rules.lockReason(p: Profile, w: Wallet, gearLevel: number?, rebirths: n
 	return nil
 end
 
+-- Deep Mine ------------------------------------------------------------------------
+
+Rules.MINE_DEPTHS = 5
+Rules.LEGENDARY_CHANCE = 0.002 -- per swing, per mine level down (1% on level 5)
+
+-- The deepest mine level w can reach: its Gear level in Market Town, its
+-- Thermal Gear in Frostpeak, its Fireproof Armor in Emberfall.
+function Rules.mineDepth(w: Wallet): number
+	local id = Upgrades.DEPTH[w.realm] or "gear"
+	return math.min(Upgrades.value(id, w.upgrades[id] or 1), Rules.MINE_DEPTHS)
+end
+
+-- Why w can't go down to mine level `depth`, or nil.
+function Rules.depthBlock(w: Wallet, depth: number): string?
+	if depth < 1 or depth > Rules.MINE_DEPTHS or depth ~= math.floor(depth) then
+		return "There's no such level"
+	end
+	if Rules.mineDepth(w) < depth then
+		local upgrade = Upgrades.byId[Upgrades.DEPTH[w.realm] or "gear"]
+		return `Level {depth} needs {upgrade.icon} {upgrade.name} level {depth}. Upgrade at the Outfitter`
+	end
+	return nil
+end
+
+-- Chance (in %) of each ore tier, 1 (common) to 5 (rarest), per mine level.
+-- Every level can turn up anything; deeper levels make good ores the norm.
+-- Average value per swing roughly matches gathering at the gear the level needs, times 1.5-2.
+Rules.ORE_ODDS = {
+	{ 80, 16, 3.5, 0.45, 0.05 },
+	{ 45, 32, 16, 5, 2 },
+	{ 15, 27, 33, 17, 8 },
+	{ 5, 15, 30, 32, 18 },
+	{ 2, 6, 17, 35, 40 },
+} :: { { number } }
+
+-- A world's ore of a given tier.
+function Rules.oreAt(realmId: string, tier: number): Goods.Good?
+	for _, g in Goods do
+		if g.realm == realmId and g.tier == tier then
+			return g
+		end
+	end
+	return nil
+end
+
+-- Each ore on a mine level with its chance (0-1), commonest first.
+function Rules.oreOdds(realmId: string, depth: number): { { good: Goods.Good, chance: number } }
+	local out = {}
+	local odds = Rules.ORE_ODDS[math.clamp(depth, 1, #Rules.ORE_ODDS)]
+	for tier, pct in odds do
+		local good = Rules.oreAt(realmId, tier)
+		if good then
+			table.insert(out, { good = good, chance = pct / 100 })
+		end
+	end
+	return out
+end
+
+-- Which ore a swing on a mine level turns up, for a roll in [0, 1).
+function Rules.rollOre(realmId: string, depth: number, roll: number): Goods.Good
+	local edge = 0
+	local odds = Rules.oreOdds(realmId, depth)
+	for _, o in odds do
+		edge += o.chance
+		if roll < edge then
+			return o.good
+		end
+	end
+	return odds[#odds].good
+end
+
+-- Average value of one swing on a mine level (at base prices).
+function Rules.oreValue(realmId: string, depth: number): number
+	local v = 0
+	for _, o in Rules.oreOdds(realmId, depth) do
+		v += o.chance * o.good.basePrice
+	end
+	return v
+end
+
+-- One swing on mine level `depth` of w's world that turned up oreId: adds it
+-- (one per swing, two with a Gather boost). Returns the amount, or nil and why.
+function Rules.mine(p: Profile, w: Wallet, depth: number, oreId: string): (number?, string?)
+	local good = goodsById[oreId]
+	if not good or not good.tier or good.realm ~= w.realm then
+		return nil, "That isn't found here"
+	end
+	local block = Rules.realmLock(p, w.realm) or Rules.depthBlock(w, depth)
+	if block then
+		return nil, block
+	end
+	if Rules.space(w) <= 0 then
+		return nil, "Backpack full! Sell or craft to make room"
+	end
+	local gained = math.min(Rules.boostMult(p, "gather"), Rules.space(w))
+	w.inventory[oreId] = (w.inventory[oreId] or 0) + gained
+	w.stats.gathered[oreId] = (w.stats.gathered[oreId] or 0) + gained
+	return gained, nil
+end
+
+-- A world's legendary ore.
+function Rules.legendaryOf(realmId: string): Goods.Good?
+	for _, g in Goods do
+		if g.realm == realmId and g.legendary then
+			return g
+		end
+	end
+	return nil
+end
+
+-- Chance that a swing on mine level `depth` also turns up the legendary ore.
+function Rules.legendaryChance(depth: number): number
+	return Rules.LEGENDARY_CHANCE * depth
+end
+
+-- Adds one legendary ore of w's world (if there's room). Returns whether it did.
+function Rules.findLegendary(w: Wallet): boolean
+	local good = Rules.legendaryOf(w.realm)
+	if not good or Rules.space(w) <= 0 then
+		return false
+	end
+	w.inventory[good.id] = (w.inventory[good.id] or 0) + 1
+	w.stats.gathered[good.id] = (w.stats.gathered[good.id] or 0) + 1
+	return true
+end
+
 -- Why goodId can't be gathered into wallet w right now, or nil if it can.
 function Rules.gatherBlock(p: Profile, w: Wallet, goodId: string): string?
 	local good = goodsById[goodId]
-	if not good or not good.raw or good.realm ~= w.realm then
-		return "That can't be gathered"
+	if not good or not good.raw or good.realm ~= w.realm or good.legendary or good.tier then
+		return "That can't be gathered" -- ores are mined (Rules.mine)
 	end
 	local lock = Rules.realmLock(p, w.realm) or Rules.lockReason(p, w, good.gearLevel, good.rebirths)
 	if lock then
@@ -450,6 +576,9 @@ end
 function Rules.upgradeBlock(w: Wallet, upgradeId: string): string?
 	if Upgrades.GLOBAL[upgradeId] and w.realm ~= Realms.MAIN then
 		return "Upgrade this back in Market Town"
+	end
+	if not Upgrades.availableIn(upgradeId, w.realm) then
+		return "Not sold in this world"
 	end
 	local cost = Rules.upgradeCost(w, upgradeId)
 	if not cost then
@@ -595,7 +724,7 @@ function Rules.refreshQuests(p: Profile, today: number)
 	local scale = 1 + p.rebirths
 	local raws, crafts = {}, {}
 	for _, g in Goods do
-		if g.realm == Realms.MAIN and g.raw and Rules.lockReason(p, p, g.gearLevel, g.rebirths) == nil then
+		if g.realm == Realms.MAIN and g.raw and not g.tier and not g.legendary and Rules.lockReason(p, p, g.gearLevel, g.rebirths) == nil then
 			table.insert(raws, g.id)
 		end
 	end

@@ -89,7 +89,11 @@ local function planSell(good: Goods.Good, quote: Store.Quote, profile: Rules.Pro
 	local owned = p.inventory[good.id] or 0
 	if owned <= 0 then
 		local zone = Places.zoneFor(good.id)
-		local where = if zone then `Gather it at the {zone.name}` elseif not good.raw then "Craft it at the Workshop" else ""
+		local where = if good.tier then "Found in the ⛏️ Deep Mine, more often the deeper you dig"
+			elseif good.legendary then "Legendary! A rare find anywhere in the ⛏️ Deep Mine"
+			elseif zone then `Gather it at the {zone.name}`
+			elseif not good.raw then "Craft it at the Workshop"
+			else ""
 		return { qty = 0, total = 0, why = `You don't have any {good.name}. {where}` }
 	end
 	local n = if amount == "Max" then math.min(owned, MAX_QTY) else amount :: number
@@ -197,7 +201,7 @@ function MarketPanel.new()
 
 	for i, good in Goods do
 		local card = Ui.card({ Parent = list, LayoutOrder = i, Size = UDim2.new(1, -12, 0, 74) }, true)
-		local tile = Ui.iconTile(good.icon, TILE_COLORS[good.id] or "paper", 56)
+		local tile = Ui.goodTile(good, TILE_COLORS[good.id] or "paper", 56)
 		tile.Position = UDim2.fromOffset(9, 9)
 		tile.Parent = card
 		local eventChip = Ui.new("Frame", {

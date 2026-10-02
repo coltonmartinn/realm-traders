@@ -242,13 +242,12 @@ local CROPS: { Crop } = {
 
 local function field(parent: Instance, cf: CFrame, size: number, rng: Random)
 	local m = K.model(parent, "Field")
-	K.block(m, cf * CFrame.new(0, 0.12, 0), Vector3.new(size, 0.24, size), Color3.fromRGB(104, 76, 54), Enum.Material.Ground)
-	workspace.Terrain:FillBlock(cf * CFrame.new(0, -4, 0), Vector3.new(size - 2, 8, size - 2), Enum.Material.Mud)
+	K.block(m, cf * CFrame.new(0, 0.25, 0), Vector3.new(size, 0.5, size), Color3.fromRGB(116, 82, 54), Enum.Material.SmoothPlastic)
 	local crop = CROPS[rng:NextInteger(1, #CROPS)]
 	local rows = 6
 	for i = 0, rows - 1 do
 		local z = (i - (rows - 1) / 2) * (size / rows)
-		K.block(m, cf * CFrame.new(0, 0.24 + crop.height / 2, z), Vector3.new(size - 2, crop.height, size / rows * 0.55), crop.color, crop.material)
+		K.block(m, cf * CFrame.new(0, 0.5 + crop.height / 2, z), Vector3.new(size - 2, crop.height, size / rows * 0.55), crop.color, crop.material)
 	end
 end
 
@@ -314,14 +313,15 @@ end
 
 -- Lakes: overlapping circles of terrain (ice, lava) across the sector.
 -- Returns them, so things can be put on them before their ground is claimed.
-local function lake(ctx: Ctx, material: Enum.Material): { { at: Vector3, d: number } }
+local function lake(ctx: Ctx, color: Color3, material: Enum.Material): { { at: Vector3, d: number } }
 	local discs = {}
-	local step = 70 / (NEAR + 60)
+	local dist = NEAR + 62
+	local d = 92
+	local step = (d + 6) / dist -- far enough apart that discs never overlap
 	local a = ctx.from + step / 2
-	while a < ctx.to do
-		local d = ctx.rng:NextNumber(90, 120)
-		local at = polar(ctx.center, a, NEAR + 62 + ctx.rng:NextNumber(-6, 10))
-		workspace.Terrain:FillCylinder(CFrame.new(at.X, -4, at.Z), 8, d / 2, material)
+	while a + step / 2 <= ctx.to + 0.001 do
+		local at = polar(ctx.center, a, dist)
+		disc(ctx.parent, at, d, 0.3, color, material).Name = "Lake" -- top at 0.4
 		table.insert(discs, { at = at, d = d })
 		a += step
 	end
@@ -331,7 +331,7 @@ end
 -- What each direction looks like ---------------------------------------------------------------
 
 type Kind = {
-	ground: Enum.Material?, -- the sector's terrain, if it differs from the world's (colours: World TERRAIN_COLORS)
+	ground: Color3?, -- the sector's ground, if it differs from the world's
 	hills: Color3?, -- hills behind the props (none if the sector's props are tall)
 	hillMaterial: Enum.Material?,
 	fill: (ctx: Ctx) -> (),
@@ -340,7 +340,7 @@ type Kind = {
 local KINDS: { [string]: Kind } = {}
 
 KINDS.forest = {
-	ground = Enum.Material.LeafyGrass,
+	ground = Color3.fromRGB(64, 160, 62),
 	hills = Color3.fromRGB(58, 124, 60),
 	fill = function(ctx)
 		scatter(ctx, NEAR - 2, FAR, per(ctx, 110), function()
@@ -374,7 +374,7 @@ KINDS.farm = {
 }
 
 KINDS.quarry = {
-	ground = Enum.Material.Slate,
+	ground = Color3.fromRGB(190, 184, 170),
 	fill = function(ctx)
 		-- Cranes and cut stone at the foot of the terraces
 		local props = 0
@@ -408,7 +408,7 @@ KINDS.quarry = {
 }
 
 KINDS.mine = {
-	ground = Enum.Material.Ground,
+	ground = Color3.fromRGB(156, 116, 76),
 	hills = Color3.fromRGB(130, 104, 84),
 	hillMaterial = Enum.Material.Slate,
 	fill = function(ctx)
@@ -425,7 +425,7 @@ KINDS.mine = {
 }
 
 KINDS.cave = {
-	ground = Enum.Material.Limestone,
+	ground = Color3.fromRGB(88, 72, 116),
 	hills = Color3.fromRGB(70, 60, 86),
 	hillMaterial = Enum.Material.Slate,
 	fill = function(ctx)
@@ -472,7 +472,7 @@ KINDS.town = {
 
 -- The hub, toward the Frostpeak portal: snowy pines and white peaks
 KINDS.frostpeaks = {
-	ground = Enum.Material.Snow,
+	ground = Color3.fromRGB(240, 246, 252),
 	fill = function(ctx)
 		crags(ctx, per(ctx, 10), NumberRange.new(40, 64), Color3.fromRGB(205, 220, 236), Enum.Material.Glacier, SNOW)
 		scatter(ctx, NEAR - 2, FAR, per(ctx, 60), 4.5, function(cf)
@@ -483,7 +483,7 @@ KINDS.frostpeaks = {
 
 -- The hub, toward the Emberfall portal: a smoking volcano
 KINDS.volcano = {
-	ground = Enum.Material.Basalt,
+	ground = Color3.fromRGB(62, 48, 48),
 	fill = function(ctx)
 		local at = polar(ctx.center, (ctx.from + ctx.to) / 2, FAR + 10)
 		Layout.claim(at, 55)
@@ -518,7 +518,7 @@ KINDS.frost_lake = {
 	hills = SNOW_HILLS,
 	hillMaterial = Enum.Material.Snow,
 	fill = function(ctx)
-		local discs = lake(ctx, Enum.Material.Ice)
+		local discs = lake(ctx, Color3.fromRGB(150, 210, 250), Enum.Material.SmoothPlastic)
 		-- Fishing huts, igloos and fishing holes out on the ice
 		for i, d in discs do
 			local hut = d.at + Vector3.new(ctx.rng:NextNumber(-15, 15), 0, ctx.rng:NextNumber(-15, 15))
@@ -532,7 +532,7 @@ KINDS.frost_lake = {
 			for _ = 1, 2 do
 				local hole = d.at + Vector3.new(ctx.rng:NextNumber(-28, 28), 0, ctx.rng:NextNumber(-28, 28))
 				if Layout.take(hole, 2, 1) then
-					disc(ctx.parent, hole, 3, 0.15, Color3.fromRGB(30, 70, 120), Enum.Material.Glass).Name = "FishingHole"
+					disc(ctx.parent, hole, 3, 0.6, Color3.fromRGB(30, 70, 120), Enum.Material.SmoothPlastic).Name = "FishingHole"
 				end
 			end
 		end
@@ -569,7 +569,7 @@ KINDS.frost_cave = {
 local ASH = Color3.fromRGB(96, 88, 88)
 
 KINDS.ember_fields = {
-	ground = Enum.Material.Asphalt,
+	ground = Color3.fromRGB(100, 92, 92),
 	hills = Color3.fromRGB(84, 76, 76),
 	hillMaterial = Enum.Material.Slate,
 	fill = function(ctx)
@@ -591,9 +591,9 @@ KINDS.ember_fields = {
 }
 
 KINDS.ember_pits = {
-	ground = Enum.Material.Basalt,
+	ground = Color3.fromRGB(62, 48, 48),
 	fill = function(ctx)
-		local discs = lake(ctx, Enum.Material.CrackedLava)
+		local discs = lake(ctx, LAVA, Enum.Material.Neon)
 		for i, d in discs do
 			if i % 2 == 1 then
 				local light = K.block(ctx.parent, CFrame.new(d.at + Vector3.new(0, 3, 0)), Vector3.one, LAVA, nil, { Transparency = 1 })
@@ -623,7 +623,7 @@ KINDS.ember_pits = {
 }
 
 KINDS.ember_lair = {
-	ground = Enum.Material.Rock,
+	ground = Color3.fromRGB(88, 42, 48),
 	hills = Color3.fromRGB(70, 36, 40),
 	hillMaterial = Enum.Material.Basalt,
 	fill = function(ctx)
@@ -657,24 +657,51 @@ local TOWN_HILLS: { [string]: { color: Color3, material: Enum.Material } } = {
 	ember = { color = Color3.fromRGB(70, 56, 56), material = Enum.Material.Basalt },
 }
 
--- The sector's ground, painted into the terrain in wedge-shaped slices
--- (terrain has one surface, so overlapping slices can't flicker).
-local function ground(ctx: Ctx, material: Enum.Material)
-	local n = math.ceil((ctx.to - ctx.from) / math.rad(3))
+-- One slice of the ground ring: the exact shape between two angles and two
+-- distances (a rectangle plus a wedge each side), so neighbouring slices meet
+-- edge to edge and never overlap (overlapping floors flicker).
+local function groundSlice(parent: Instance, center: Vector3, a0: number, a1: number, r0: number, r1: number, color: Color3)
+	local half = (a1 - a0) / 2
+	local mid = a0 + half
+	local out = Vector3.new(math.cos(mid), 0, math.sin(mid))
+	local right = Vector3.new(-out.Z, 0, out.X)
+	local w0, d0 = r0 * math.sin(half), r0 * math.cos(half)
+	local w1, d1 = r1 * math.sin(half), r1 * math.cos(half)
+	local t = 4
+	local base = center + out * (d0 + d1) / 2 - Vector3.new(0, t / 2, 0)
+	local rect = K.block(parent, CFrame.fromMatrix(base, right, Vector3.yAxis), Vector3.new(w0 * 2, t, d1 - d0), color, Enum.Material.SmoothPlastic, { CastShadow = false })
+	rect.Name = "Ground"
+	for _, side in { -1, 1 } do
+		local y = right * side
+		local x = y:Cross(out)
+		local wedge = Instance.new("WedgePart")
+		wedge.Name = "Ground"
+		wedge.Anchored = true
+		wedge.Size = Vector3.new(t, w1 - w0, d1 - d0)
+		wedge.CFrame = CFrame.fromMatrix(base + y * (w0 + w1) / 2, x, y, out)
+		wedge.Color = color
+		wedge.Material = Enum.Material.SmoothPlastic
+		wedge.CastShadow = false
+		wedge.TopSurface = Enum.SurfaceType.Smooth
+		wedge.BottomSurface = Enum.SurfaceType.Smooth
+		wedge.Parent = parent
+	end
+end
+
+-- The sector's ground, from the world's ground disc out under the mountains.
+local function ground(ctx: Ctx, color: Color3)
+	local n = math.ceil((ctx.to - ctx.from) / math.rad(4))
 	local step = (ctx.to - ctx.from) / n
 	for i = 0, n - 1 do
-		local a = ctx.from + (i + 0.5) * step
-		for _, band in { { NEAR - 12, NEAR + 120 }, { NEAR + 120, NEAR + 320 } } do
-			local near, far = band[1], band[2]
-			local at = polar(ctx.center, a, (near + far) / 2)
-			workspace.Terrain:FillBlock(facing(ctx.center, at) * CFrame.new(0, -4, 0), Vector3.new(2 * far * math.tan(step / 2) + 4, 8, far - near), material)
-		end
+		local a = ctx.from + i * step
+		groundSlice(ctx.parent, ctx.center, a, a + step, NEAR - 4, NEAR + 130, color)
+		groundSlice(ctx.parent, ctx.center, a, a + step, NEAR + 130, NEAR + 400, color)
 	end
 end
 
 -- Builds the backdrop round one world. `sectors` are the directions to dress
 -- (each gets the arc of directions closer to it than to any other).
-function Backdrop.build(parent: Instance, realmId: string, sectors: { Sector }, rng: Random)
+function Backdrop.build(parent: Instance, realmId: string, sectors: { Sector }, worldGround: Color3, rng: Random)
 	local center = Places.CENTERS[realmId]
 	local folder = Instance.new("Folder")
 	folder.Name = if realmId == "main" then "Backdrop" else realmId:upper() .. "_BACKDROP"
@@ -702,9 +729,7 @@ function Backdrop.build(parent: Instance, realmId: string, sectors: { Sector }, 
 			realm = realmId,
 		}
 		local kind = KINDS[sector.kind]
-		if kind.ground then
-			ground(ctx, kind.ground)
-		end
+		ground(ctx, kind.ground or worldGround)
 		kind.fill(ctx)
 		-- Rolling hills behind the props
 		local hills: { color: Color3, material: Enum.Material }? = kind.hills and { color = kind.hills, material = kind.hillMaterial or Enum.Material.Grass } or (sector.kind == "town" and TOWN_HILLS[realmId]) or nil

@@ -16,7 +16,7 @@ local UpgradeRequest = ReplicatedStorage.Remotes.UpgradeRequest :: RemoteEvent
 local RebirthRequest = ReplicatedStorage.Remotes.RebirthRequest :: RemoteEvent
 
 local SEND_GAP = 0.4
-local TILE_COLORS: { [string]: string } = { gear = "teal", backpack = "blue" }
+local TILE_COLORS: { [string]: string } = { gear = "teal", backpack = "blue", thermal = "blue", fireproof = "orange" }
 
 local UpgradePanel = {}
 
@@ -178,12 +178,12 @@ function UpgradePanel.new()
 		local inHub = p.realm == Realms.MAIN
 		rebirthCard.Visible = inHub
 		tip.Text = if inHub
-			then "💡 Gear level 2 opens the 🔩 Mine, where iron for Tools is found."
-			else `💡 Upgrades here cost {Realms.byId[p.realm].coinName} and only count in {Realms.byId[p.realm].name}.`
+			then "💡 Each Gear level opens new zones and a deeper level of the ⛏️ Deep Mine."
+			else `💡 Upgrades here cost {Realms.byId[p.realm].coinName} and only count in {Realms.byId[p.realm].name}. {Upgrades.byId[Upgrades.DEPTH[p.realm] or "gear"].name} takes you deeper in the ⛏️ Deep Mine.`
 		refreshRebirth()
 		for _, card in cards do
 			local id = card.upgrade.id
-			card.frame.Visible = inHub or not Upgrades.GLOBAL[id]
+			card.frame.Visible = (inHub or not Upgrades.GLOBAL[id]) and Upgrades.availableIn(id, p.realm)
 			local lvl = p.upgrades[id]
 			local maxLvl = Upgrades.maxLevel(id)
 			card.level.Text = `LEVEL {lvl}/{maxLvl}`
