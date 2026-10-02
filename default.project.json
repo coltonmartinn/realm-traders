@@ -3,16 +3,35 @@
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
-      "Shared": { "$path": "src/shared" },
+      "Shared": {
+        "$path": "src/shared",
+        "PriceModel": { "$path": "src/server/PriceModel.luau" }
+      },
       "Remotes": {
         "$className": "Folder",
         "TradeRequest": { "$className": "RemoteEvent" },
+        "CraftRequest": { "$className": "RemoteEvent" },
+        "UpgradeRequest": { "$className": "RemoteEvent" },
+        "SellAllRequest": { "$className": "RemoteEvent" },
+        "RebirthRequest": { "$className": "RemoteEvent" },
+        "DailyRequest": { "$className": "RemoteEvent" },
+        "CodeRequest": { "$className": "RemoteEvent" },
+        "GiftRequest": { "$className": "RemoteEvent" },
+        "QuestRequest": { "$className": "RemoteEvent" },
+        "PetRequest": { "$className": "RemoteEvent" },
         "MarketUpdate": { "$className": "RemoteEvent" },
-        "PlayerUpdate": { "$className": "RemoteEvent" }
+        "PlayerUpdate": { "$className": "RemoteEvent" },
+        "Notify": { "$className": "RemoteEvent" },
+        "News": { "$className": "RemoteEvent" }
       }
     },
     "ServerScriptService": {
       "Server": { "$path": "src/server" }
+    },
+    "StarterPlayer": {
+      "StarterPlayerScripts": {
+        "Client": { "$path": "src/client" }
+      }
     }
   }
 }

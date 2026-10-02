@@ -20,3 +20,9 @@ analysis/output/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local Claude Code settings
+.claude/settings.local.json
+
+# Manual Studio sync manifest
+.sync-manifest.json

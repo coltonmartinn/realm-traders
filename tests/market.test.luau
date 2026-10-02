@@ -61,7 +61,7 @@ do
 	local market, wallet = fresh()
 	local value = MarketState.trade(market, wallet, "wood", "sell", 5)
 	check("sell pays cash", value ~= nil and value > 0 and wallet.cash == 1000 + value)
-	check("sell removes inventory", wallet.inventory.wood == 0)
+	check("sell removes inventory entry", wallet.inventory.wood == nil)
 	check("sell adds stock", market.entries.wood.stock == 505)
 end
 
@@ -77,6 +77,35 @@ do
 		MarketState.tick(market)
 	end
 	check("lower stock raises price", MarketState.snapshot(market).wood.ask > before)
+end
+
+-- Event boosts
+do
+	local market = MarketState.new(Goods)
+	local base = MarketState.snapshot(market).bread
+	MarketState.setBoost(market, "bread", 1.6)
+	local boosted = MarketState.snapshot(market).bread
+	check("boost raises the ask immediately", boosted.ask > base.ask * 1.5)
+	check("bid does not jump until the price catches up", boosted.bid < base.bid * 1.05)
+	for _ = 1, 60 do
+		MarketState.tick(market)
+	end
+	local later = MarketState.snapshot(market).bread
+	check("price catches up to the boost", later.price > base.price * 1.5 and later.bid > base.bid * 1.4)
+	MarketState.setBoost(market, "bread", 1)
+	for _ = 1, 60 do
+		MarketState.tick(market)
+	end
+	check("price returns after the event", math.abs(MarketState.snapshot(market).bread.price - base.price) < base.price * 0.05)
+	check("snapshot reports boost", later.boost == 1.6 and MarketState.snapshot(market).bread.boost == 1)
+
+	-- No free money: buying at the start of a boost and selling at its peak
+	-- is fine (that's trading), but buy-then-immediately-sell must still lose.
+	local wallet = { cash = 100000, inventory = {} }
+	MarketState.setBoost(market, "tools", 1.5)
+	local cost = MarketState.trade(market, wallet, "tools", "buy", 10) :: number
+	local value = MarketState.trade(market, wallet, "tools", "sell", 10) :: number
+	check("round trip during a boost loses money", value < cost)
 end
 
 if failures > 0 then

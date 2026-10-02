@@ -228,11 +228,11 @@ local function naiveTrade(m, w, id, side, qty)
 			return nil
 		end
 		w.cash -= cost
-		w.inventory[id] += qty
+		w.inventory[id] = (w.inventory[id] or 0) + qty
 		e.stock -= qty
 		return cost
 	else
-		if w.inventory[id] < qty then
+		if (w.inventory[id] or 0) < qty then
 			return nil
 		end
 		local value = math.floor(e.price * qty * (1 - p.spread))
@@ -249,7 +249,7 @@ local function roundTrip(trade, p, id, first, qty, wait, cycles, npcs)
 	local m = MarketState.new(Goods, p)
 	local w = { cash = 1e7, inventory = { [id] = 1000 } }
 	local worth = function()
-		return w.cash + w.inventory[id] * BASE[id]
+		return w.cash + (w.inventory[id] or 0) * BASE[id]
 	end
 	local start = worth()
 	local second = if first == "buy" then "sell" else "buy"
