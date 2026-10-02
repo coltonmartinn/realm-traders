@@ -27,7 +27,8 @@ local CENTERS: { [string]: Vector3 } = {
 	frost = Vector3.new(1600, 0, 0),
 	ember = Vector3.new(3200, 0, 0),
 }
-local REALM_RADIUS = 200 -- each world's walls; worlds are far apart
+local REALM_RADIUS = 200 -- each world's extent (the backdrop starts here); worlds are far apart
+local BARRIER_RADIUS = 168 -- the wall round each world's play area (everything playable is inside ~155)
 
 local function at(realm: string, x: number, z: number): Vector3
 	return CENTERS[realm] + Vector3.new(x, 0, z)
@@ -85,6 +86,7 @@ local Places = {}
 Places.HUB = CENTERS.main
 Places.CENTERS = CENTERS
 Places.REALM_RADIUS = REALM_RADIUS
+Places.BARRIER_RADIUS = BARRIER_RADIUS
 Places.list = list
 Places.byId = byId
 Places.SPAWN = Vector3.new(0, 0, 14)

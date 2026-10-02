@@ -90,6 +90,16 @@ a mine entrance with rails and an ore cart at the Mine; an ice-fishing shanty an
 igloo at the Frozen Lake; dragon bones and a gold hoard in the Dragon's Lair.
 Props reserve their spot so gathering nodes never spawn inside them. → `Scenery.luau`.
 
+**A wall round each world**. The play area (everything playable sits within ~155
+studs) is ringed by a themed wall at 168 studs rather than an invisible barrier:
+- Market Town: a stone town wall with battlements, lanterns and banners.
+- Frostpeak: a glowing ice wall with snow and icicles.
+- Emberfall: an obsidian wall with lava seams, spikes and fire braziers.
+
+Pillars sit at the corners so the straight sections meet cleanly. A tall invisible
+guard just behind the wall stops jumping over it, and the tree ring stands outside
+it. → `World.buildBarrier`.
+
 **No visible map edge**. Past each world's walls the scenery keeps going, matched to
 what's in front of it: more fields, barns and windmills behind the Farm; stepped
 quarry walls behind the Quarry; mine tunnels in brown crags behind the Mine; glowing

@@ -1650,17 +1650,125 @@ local THEMES: { [string]: Theme } = {
 	},
 }
 
--- Big scenery around a world's edge, smaller bits between zones (kept off
--- paths and away from `avoid`), and invisible walls.
+-- The wall round each world's play area, in the world's style: a stone town
+-- wall with battlements, lanterns and banners in Market Town; a glowing ice
+-- wall with snow and icicles in Frostpeak; an obsidian wall with lava seams,
+-- spikes and fire braziers in Emberfall. Pillars stand at every corner so the
+-- straight wall sections meet cleanly. An invisible guard just behind it
+-- stops anyone climbing over.
+local BARRIER_SIDES = 56
+local BARRIER_HEIGHT = 8
+local BARRIER_THICK = 1.6
+local BANNER_COLORS = { Color3.fromRGB(220, 60, 60), Color3.fromRGB(60, 120, 220), Color3.fromRGB(240, 180, 40), Color3.fromRGB(150, 80, 210) }
+
+local function buildBarrier(realmId: string, parent: Instance)
+	local center = Places.CENTERS[realmId]
+	local radius = Places.BARRIER_RADIUS
+	local m = group(parent, "Barrier")
+	local step = math.pi * 2 / BARRIER_SIDES
+	local chord = 2 * radius * math.sin(step / 2)
+	local pillarSize = 3.4
+	local length = chord - pillarSize + 0.4 -- tucked a little into the pillars at each end
+	local h, t = BARRIER_HEIGHT, BARRIER_THICK
+
+	for i = 0, BARRIER_SIDES - 1 do
+		local a = i * step
+		local corner = center + Vector3.new(math.cos(a) * radius, 0, math.sin(a) * radius)
+		local pcf = CFrame.lookAt(corner, Vector3.new(center.X, 0, center.Z))
+		Layout.claim(corner, pillarSize * 0.75)
+		local mid = a + step / 2
+		local midAt = center + Vector3.new(math.cos(mid), 0, math.sin(mid)) * radius * math.cos(step / 2)
+		local wcf = CFrame.lookAt(midAt, Vector3.new(center.X, 0, center.Z)) -- front (-Z) faces into the world
+		Layout.claim(midAt, t)
+		local lit = i % 4 == 0
+
+		-- Invisible guard, just outside: the wall is the barrier you see, this one can't be jumped
+		part({ Name = "Guard", Parent = m, Size = Vector3.new(chord + 1, 60, 1), CFrame = wcf * CFrame.new(0, 30, 2), Transparency = 1, CastShadow = false, CanQuery = false })
+
+		if realmId == "frost" then
+			local pillar = part({ Name = "Pillar", Parent = m, Size = Vector3.new(pillarSize, h + 3, pillarSize), CFrame = pcf * CFrame.new(0, (h + 3) / 2, 0), Color = Color3.fromRGB(170, 214, 245), Material = Enum.Material.Glacier })
+			pillar.Transparency = 0.05
+			part({ Name = "SnowCap", Parent = m, Size = Vector3.new(pillarSize + 0.6, 0.8, pillarSize + 0.6), CFrame = pcf * CFrame.new(0, h + 3.4, 0), Color = Color3.fromRGB(248, 252, 255), Material = Enum.Material.Snow })
+			local crystal = part({ Name = "Crystal", Parent = m, Size = Vector3.one * 1.6, CFrame = pcf * CFrame.new(0, h + 5, 0) * CFrame.Angles(math.rad(45), math.rad(45), 0), Color = Color3.fromRGB(140, 230, 255), Material = Enum.Material.Neon, CanCollide = false })
+			if lit then
+				K.glow(crystal, Color3.fromRGB(140, 220, 255), 18, 1.2)
+			end
+			local wall = part({ Name = "IceWall", Parent = m, Size = Vector3.new(length, h, t), CFrame = wcf * CFrame.new(0, h / 2, 0), Color = Color3.fromRGB(190, 230, 255), Material = Enum.Material.Ice })
+			wall.Transparency = 0.2
+			part({ Name = "Snow", Parent = m, Size = Vector3.new(length, 0.9, t + 0.6), CFrame = wcf * CFrame.new(0, h + 0.45, 0), Color = Color3.fromRGB(248, 252, 255), Material = Enum.Material.Snow })
+			for k = 1, 5 do
+				local x = -length / 2 + k * length / 6
+				for _, side in { -1, 1 } do
+					local drip = 1 + ((i + k) % 3) * 0.6
+					local icicle = part({ Name = "Icicle", Parent = m, Size = Vector3.new(0.35, drip, 0.35), CFrame = wcf * CFrame.new(x + side * 0.6, h - drip / 2, side * (t / 2 + 0.35)), Color = Color3.fromRGB(215, 240, 255), Material = Enum.Material.Glass, CanCollide = false })
+					icicle.Transparency = 0.15
+				end
+			end
+		elseif realmId == "ember" then
+			local basalt = Color3.fromRGB(52, 40, 42)
+			part({ Name = "Pillar", Parent = m, Size = Vector3.new(pillarSize, h + 2, pillarSize), CFrame = pcf * CFrame.new(0, (h + 2) / 2, 0), Color = basalt, Material = Enum.Material.Basalt })
+			local bowl = part({ Name = "Brazier", Parent = m, Shape = Enum.PartType.Cylinder, Size = Vector3.new(1.2, 3.4, 3.4), CFrame = pcf * CFrame.new(0, h + 2.6, 0) * CFrame.Angles(0, 0, math.rad(90)), Color = Color3.fromRGB(40, 36, 40), Material = Enum.Material.Metal })
+			local coals = part({ Name = "Coals", Parent = m, Size = Vector3.new(2.2, 0.6, 2.2), CFrame = pcf * CFrame.new(0, h + 3.3, 0), Color = Color3.fromRGB(255, 110, 40), Material = Enum.Material.Neon, CanCollide = false })
+			if lit then
+				local fire = Instance.new("Fire")
+				fire.Size = 4
+				fire.Heat = 8
+				fire.Color = Color3.fromRGB(255, 140, 40)
+				fire.SecondaryColor = Color3.fromRGB(255, 60, 20)
+				fire.Parent = coals
+				K.glow(bowl, Color3.fromRGB(255, 120, 40), 20, 1.5)
+			end
+			part({ Name = "ObsidianWall", Parent = m, Size = Vector3.new(length, h, t), CFrame = wcf * CFrame.new(0, h / 2, 0), Color = Color3.fromRGB(44, 32, 38), Material = Enum.Material.Basalt })
+			-- Glowing lava seams on both faces
+			for _, side in { -1, 1 } do
+				part({ Name = "LavaSeam", Parent = m, Size = Vector3.new(length - 0.6, 0.45, 0.2), CFrame = wcf * CFrame.new(0, h * 0.42, side * (t / 2 + 0.05)), Color = Color3.fromRGB(255, 100, 30), Material = Enum.Material.Neon, CanCollide = false })
+			end
+			part({ Name = "Coping", Parent = m, Size = Vector3.new(length, 0.5, t + 0.4), CFrame = wcf * CFrame.new(0, h + 0.25, 0), Color = basalt, Material = Enum.Material.Basalt })
+			for k = 1, 4 do
+				local x = -length / 2 + k * length / 5
+				part({ Name = "Spike", Parent = m, Size = Vector3.new(0.7, 2.4, 0.7), CFrame = wcf * CFrame.new(x, h + 1.6, 0) * CFrame.Angles(0, math.rad(45), 0), Color = Color3.fromRGB(30, 26, 30), Material = Enum.Material.Metal })
+			end
+		else
+			-- Market Town: a stone town wall with battlements, lanterns and banners
+			local stone = Color3.fromRGB(196, 186, 168)
+			part({ Name = "Pillar", Parent = m, Size = Vector3.new(pillarSize, h + 2.6, pillarSize), CFrame = pcf * CFrame.new(0, (h + 2.6) / 2, 0), Color = stone:Lerp(C.ink, 0.08), Material = Enum.Material.Cobblestone })
+			part({ Name = "PillarCap", Parent = m, Size = Vector3.new(pillarSize + 0.8, 0.8, pillarSize + 0.8), CFrame = pcf * CFrame.new(0, h + 3, 0), Color = Color3.fromRGB(150, 140, 130), Material = Enum.Material.Slate })
+			part({ Name = "LanternPost", Parent = m, Size = Vector3.new(0.3, 1.6, 0.3), CFrame = pcf * CFrame.new(0, h + 4.2, 0), Color = C.ink, Material = Enum.Material.Metal })
+			local lantern = part({ Name = "Lantern", Parent = m, Size = Vector3.new(1, 1.2, 1), CFrame = pcf * CFrame.new(0, h + 5.4, 0), Color = Color3.fromRGB(255, 220, 140), Material = Enum.Material.Neon, CanCollide = false })
+			part({ Name = "LanternCap", Parent = m, Size = Vector3.new(1.4, 0.35, 1.4), CFrame = pcf * CFrame.new(0, h + 6.15, 0), Color = C.ink, Material = Enum.Material.Metal })
+			if lit then
+				K.glow(lantern, Color3.fromRGB(255, 210, 140), 18, 1)
+			end
+			part({ Name = "TownWall", Parent = m, Size = Vector3.new(length, h, t), CFrame = wcf * CFrame.new(0, h / 2, 0), Color = stone, Material = Enum.Material.Cobblestone })
+			part({ Name = "Coping", Parent = m, Size = Vector3.new(length, 0.5, t + 0.4), CFrame = wcf * CFrame.new(0, h + 0.25, 0), Color = Color3.fromRGB(160, 150, 138), Material = Enum.Material.Slate })
+			for k = -1, 1 do
+				part({ Name = "Merlon", Parent = m, Size = Vector3.new(2.4, 1.4, t + 0.2), CFrame = wcf * CFrame.new(k * length / 3, h + 1.2, 0), Color = stone, Material = Enum.Material.Cobblestone })
+			end
+			if i % 2 == 1 then
+				-- A banner hanging on the inside face, under a gold rod
+				local color = BANNER_COLORS[(i // 2) % #BANNER_COLORS + 1]
+				local face = wcf * CFrame.new(0, 0, -(t / 2 + 0.12))
+				part({ Name = "BannerRod", Parent = m, Size = Vector3.new(3.8, 0.25, 0.25), CFrame = face * CFrame.new(0, h - 0.6, -0.1), Color = Color3.fromRGB(255, 200, 60), Material = Enum.Material.Metal, CanCollide = false })
+				part({ Name = "Banner", Parent = m, Size = Vector3.new(3.2, 4.6, 0.12), CFrame = face * CFrame.new(0, h - 3.1, 0), Color = color, Material = Enum.Material.Fabric, CanCollide = false })
+				part({ Name = "BannerTip", Parent = m, Size = Vector3.new(1.6, 1.6, 0.12), CFrame = face * CFrame.new(0, h - 5.4, 0) * CFrame.Angles(0, 0, math.rad(45)), Color = color, Material = Enum.Material.Fabric, CanCollide = false })
+				part({ Name = "BannerStripe", Parent = m, Size = Vector3.new(3.2, 0.4, 0.14), CFrame = face * CFrame.new(0, h - 1.6, -0.02), Color = Color3.fromRGB(255, 220, 90), Material = Enum.Material.Fabric, CanCollide = false })
+			end
+		end
+	end
+end
+
+-- The world's wall, big scenery in a ring just outside it, and smaller bits
+-- in the open ground between zones.
 local function buildBorder(realmId: string, rng: Random)
 	local theme = THEMES[realmId]
 	local center = Places.CENTERS[realmId]
 	local border = folder(if realmId == "main" then "Border" else realmId:upper() .. "_BORDER")
+	buildBarrier(realmId, border)
 	-- A ring of big scenery round the edge, each with room of its own
 	local n = 72
 	for i = 1, n do
 		local a = i / n * math.pi * 2 + rng:NextNumber(-0.03, 0.03)
-		local r = rng:NextNumber(172, 186)
+		local r = rng:NextNumber(Places.BARRIER_RADIUS + 10, Places.BARRIER_RADIUS + 22) -- just outside the wall
 		local scale = rng:NextNumber(1.3, 1.7)
 		local at = center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
 		if Layout.take(at, 4 * scale, 0) then
@@ -1674,7 +1782,7 @@ local function buildBorder(realmId: string, rng: Random)
 			break
 		end
 		local a = rng:NextNumber(0, math.pi * 2)
-		local r = rng:NextNumber(34, 164)
+		local r = rng:NextNumber(34, Places.BARRIER_RADIUS - 10)
 		local at = center + Vector3.new(math.cos(a) * r, 0, math.sin(a) * r)
 		local big = rng:NextNumber() < 0.45
 		local scale = rng:NextNumber(0.9, 1.3)
@@ -1686,12 +1794,6 @@ local function buildBorder(realmId: string, rng: Random)
 				theme.smallScenery(border, at, rng)
 			end
 		end
-	end
-	local walls = 48
-	for i = 1, walls do
-		local a = i / walls * math.pi * 2
-		local at = center + Vector3.new(math.cos(a) * (Places.REALM_RADIUS - 6), 25, math.sin(a) * (Places.REALM_RADIUS - 6))
-		part({ Name = "Wall", Parent = border, Size = Vector3.new(28, 50, 2), CFrame = CFrame.lookAt(at, center + Vector3.new(0, 25, 0)), Transparency = 1, CastShadow = false })
 	end
 end
 
