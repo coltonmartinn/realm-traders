@@ -1,9 +1,52 @@
-# Market Sim
+# Realm Traders
 
-A Roblox market economy game. Players gather or craft goods, sell them to a shared
-server-wide market, and buy what they need. Prices come from supply and demand.
+A Roblox trading simulator. Players gather and craft goods, sell them to a shared
+server-wide market where prices come from supply and demand, rebirth for permanent
+bonuses, and travel through portals to new worlds with their own economies.
 
 See [docs/DESIGN.md](docs/DESIGN.md) for why the game is built this way (research and sources).
+
+## Features
+
+- **Trading economy**: a live market per server; prices move with supply, and events
+  push one good up or down. Buying and reselling can't print money.
+- **Gather, craft, upgrade**: themed gathering zones (a barn at the Farm, a mine entrance
+  at the Mine...), recipes at the Workshop, gear and backpack upgrades at the Outfitter.
+- **Beginner tutorial**: five guided steps (chop, harvest, bake, sell, upgrade) with an
+  arrow pointing the way, then a goal chain.
+- **Rebirths** (Expand Business): +25% on sales of goods you made, per rebirth.
+- **Portal worlds**: Frostpeak ❄️ (2 rebirths) and Emberfall 🔥 (5 rebirths). Each has its
+  own coin, goods, recipes, upgrades, goals, shops and look.
+- **Pets**: bought with each world's coin, they raise sale prices (later worlds' pets are
+  stronger). Equip 3; they follow you around.
+- **Robux shop** (B): coin packs, an Exotic Egg with the best pets (shown odds, no
+  duplicates) and 15-minute boosts (2× Sell, 2× Gather, 3× Luck).
+- **Daily rewards, daily quests, codes, session gifts, lucky Golden/Rainbow finds,
+  a collection book, a Travelling Merchant and a Top Traders board.**
+- **A world with no visible edge**: past the walls, each direction shows more of what's in
+  front of it (fields behind the Farm, quarry terraces behind the Quarry, a town behind
+  the shops...), then hills and a ring of mountains.
+- Cartoony UI with the Luckiest Guy font.
+
+## Progress
+
+| Step | What was built |
+|---|---|
+| 1 | Price model and offline economy simulation |
+| 2 | Trade remotes with server-side validation |
+| 3 | Gathering, crafting, upgrades, rebirths, goals, saving with session locks |
+| 4 | Cartoony HUD and panels, guide arrow, fast travel, notifications |
+| 5 | Retention: daily rewards, quests, codes, gifts, lucky finds, collection, merchant, leaderboard |
+| 6 | Beginner tutorial, shopkeeper outfits, Robux shop |
+| 7 | Portal worlds (Frostpeak, Emberfall), pets, Exotic Egg |
+| 8 | Themed zone scenery, layout so nothing overlaps, backdrops past the walls |
+| 9 | Terrain ground (no texture flicker), brighter palette |
+
+## Before publishing
+
+- Create the Developer Products (4 coin packs, the Exotic Egg, 3 boosts) on the Creator
+  Dashboard and put their IDs in `src/shared/Products.luau` (they're all `0` now).
+- Optional: tick **Decoration** on Workspace.Terrain in Studio for swaying grass.
 
 ## Setup
 
@@ -11,7 +54,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for why the game is built this way (researc
    This installs the pinned tools from `rokit.toml` (rojo, selene, luau).
 2. Install the Rojo plugin in Studio (`rojo plugin install`).
 3. Run `rojo serve`, open a baseplate in Studio, and click Connect in the Rojo plugin.
-4. To publish or test without live sync: `rojo build -o MarketSim.rbxl`.
+4. To publish or test without live sync: `rojo build -o RealmTraders.rbxl`.
 
 ## Gameplay loop
 
@@ -55,7 +98,7 @@ Rules that keep it fair: market goods you **bought** never earn the rebirth bonu
 merchant won't take them, so buying and reselling can't print money. Progression pace is
 checked by `sim/progression.luau` (first rebirth ~47 min of optimal play).
 
-Progress saves to DataStore `MarketSim_v1`, under a session lock (`src/server/SessionLock.luau`):
+Progress saves to DataStore `MarketSim_v1` (the game's working title; keep the name so saves carry over), under a session lock (`src/server/SessionLock.luau`):
 a server only loads a profile it can lock and only writes while it holds the lock, so hopping
 servers can't lose progress. In Studio, saving needs
 Game Settings > Security > Enable Studio Access to API Services; without it the
@@ -66,7 +109,8 @@ game still runs and warns that the session won't be saved.
 Set these attributes on `ServerScriptService.Server` (they do nothing outside Studio):
 `FastEvents = true` starts events/merchant visits seconds apart; `DevGrant = 5000`
 gives every player that much cash once; `ForceLucky = "Golden"` (or `"Rainbow"`) makes
-the next gather a lucky find. On the client, setting the local player's `DebugPanel`
+the next gather a lucky find; `TestPurchase = "boost_sell"` (any product key in
+`Products.luau`) grants that product to every player as if bought. On the client, setting the local player's `DebugPanel`
 attribute to `market` / `craft` / `upgrades` / `daily` / `quests` / `collection` opens that panel.
 
 ## Checks you can run without Studio
@@ -85,11 +129,11 @@ luau sim/craft_arbitrage.luau   # profit from buy-inputs -> craft -> sell (shoul
 
 | Path | Syncs to | What |
 |---|---|---|
-| `src/shared` | ReplicatedStorage.Shared | Goods, recipes, upgrades, goals, and `Rules` (pure game rules used by both sides) |
-| `src/server` | ServerScriptService.Server | Market state, price model, NPC traders, player data/saving, world builder |
-| `src/client` | StarterPlayerScripts.Client | HUD, Market / Workshop / Outfitter panels, notifications |
+| `src/shared` | ReplicatedStorage.Shared | Goods, recipes, upgrades, goals, realms, pets, products, places, and `Rules` (pure game rules used by both sides) |
+| `src/server` | ServerScriptService.Server | Market state, price model, NPC traders, player data/saving, world builder (`World`, `Scenery`, `Backdrop`, `Layout`) |
+| `src/client` | StarterPlayerScripts.Client | HUD, Market / Workshop / Outfitter / Shop / Pets panels, guide, notifications |
 | (project file) | ReplicatedStorage.Shared.PriceModel | Same `PriceModel` file, so the client shows exact trade totals |
-| (project file) | ReplicatedStorage.Remotes | Requests: `TradeRequest`, `SellAllRequest`, `CraftRequest`, `UpgradeRequest`, `RebirthRequest`, `DailyRequest`, `CodeRequest`, `GiftRequest`, `QuestRequest`. Updates: `MarketUpdate`, `PlayerUpdate`, `Notify`, `News` |
+| (project file) | ReplicatedStorage.Remotes | Requests: `TradeRequest`, `SellAllRequest`, `CraftRequest`, `UpgradeRequest`, `RebirthRequest`, `DailyRequest`, `CodeRequest`, `GiftRequest`, `QuestRequest`, `PetRequest`. Updates: `MarketUpdate`, `PlayerUpdate`, `Notify`, `News` |
 | `sim/`, `tests/` | (not synced) | Offline simulation and tests |
 
 The map is built in code at server start (`src/server/World.luau`), so the place file needs nothing in it.

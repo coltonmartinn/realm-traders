@@ -1,4 +1,4 @@
-# Market Sim: design notes
+# Realm Traders: design notes
 
 Why the game works the way it does: what we took from successful Roblox games and
 Roblox's own design guidance, and where each idea lives in the code.

@@ -1,5 +1,5 @@
 {
-  "name": "MarketSim",
+  "name": "RealmTraders",
   "tree": {
     "$className": "DataModel",
     "ReplicatedStorage": {
