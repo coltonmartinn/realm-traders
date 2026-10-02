@@ -17,6 +17,24 @@ local Ui = require(script.Parent.Ui)
 
 local ShopPanel = {}
 
+-- Paid random items (the Exotic Egg) are hidden where Roblox's policy doesn't
+-- allow them, or until we know (the check runs once, in the background).
+local randomAllowed = false
+local policyListeners: { () -> () } = {}
+task.spawn(function()
+	local ok, info = pcall(function()
+		return game:GetService("PolicyService"):GetPolicyInfoForPlayerAsync(Players.LocalPlayer)
+	end)
+	randomAllowed = ok and type(info) == "table" and info.ArePaidRandomItemsRestricted == false
+	for _, fn in policyListeners do
+		fn()
+	end
+end)
+
+function ShopPanel.eggAllowed(): boolean
+	return randomAllowed
+end
+
 -- Seconds left on a boost, counting down locally between profile updates.
 function ShopPanel.boostLeft(boostId: string): number
 	local p = Store.profile
@@ -76,8 +94,8 @@ local function ribbon(parent: GuiObject, text: string)
 	Ui.text({ Parent = tag, Size = UDim2.fromScale(1, 1), Text = text, TextSize = 14, Outline = 1.5, ZIndex = 4 })
 end
 
-local function section(parent: Instance, order: number, text: string)
-	Ui.text({ Parent = parent, LayoutOrder = order, Size = UDim2.new(1, 0, 0, 26), Text = text, TextSize = 22, TextColor3 = Theme.text, TextXAlignment = Enum.TextXAlignment.Left })
+local function section(parent: Instance, order: number, text: string): TextLabel
+	return Ui.text({ Parent = parent, LayoutOrder = order, Size = UDim2.new(1, 0, 0, 26), Text = text, TextSize = 22, TextColor3 = Theme.text, TextXAlignment = Enum.TextXAlignment.Left })
 end
 
 function ShopPanel.new()
@@ -129,9 +147,15 @@ function ShopPanel.new()
 
 	-- Exotic Egg: the strongest pets. Paid random item, so the odds are shown
 	-- up front (and they're this player's real odds: owned pets can't hatch).
-	section(content, 5, "🥚 Exotic Egg")
+	local eggHeader = section(content, 5, "🥚 Exotic Egg")
 	local egg = Products.byKey.egg_exotic
 	local eggCard = Ui.card({ Parent = content, LayoutOrder = 6, Size = UDim2.new(1, -12, 0, 150) }, true)
+	local function showEgg()
+		eggHeader.Visible = randomAllowed
+		eggCard.Visible = randomAllowed
+	end
+	showEgg()
+	table.insert(policyListeners, showEgg)
 	ribbon(eggCard, egg.tag or "BEST PETS")
 	local eggTile = Ui.iconTile(egg.icon, egg.color, 96)
 	eggTile.Position = UDim2.fromOffset(16, 26)

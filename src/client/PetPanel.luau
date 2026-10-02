@@ -8,6 +8,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Pets = require(ReplicatedStorage.Shared.Pets)
 local Realms = require(ReplicatedStorage.Shared.Realms)
 local Rules = require(ReplicatedStorage.Shared.Rules)
+local ShopPanel = require(script.Parent.ShopPanel)
 local Store = require(script.Parent.Store)
 local Theme = require(script.Parent.Theme)
 local Toasts = require(script.Parent.Toasts)
@@ -167,6 +168,13 @@ function PetPanel.new()
 				c.button:setText("EQUIP")
 				c.button:setColor("blue")
 				c.button:setEnabled(not full)
+			elseif pet.exotic and not ShopPanel.eggAllowed() then
+				c.action = nil
+				c.why = "Exotic eggs aren't available where you are"
+				c.status.Text = "Exotic"
+				c.button:setText("NOT AVAILABLE")
+				c.button:setColor("grey")
+				c.button:setEnabled(false)
 			elseif pet.exotic then
 				c.action = "egg"
 				c.status.Text = string.format("%.0f%% chance per egg", (odds[pet.id] or 0) * 100)

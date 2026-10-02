@@ -158,6 +158,12 @@ function Leaderboard.start(parent: Instance, getProfile: (Player) -> Rules.Profi
 			local ok, pages = pcall(function()
 				return s:GetSortedAsync(false, ROWS)
 			end)
+			if not ok and tostring(pages):find("StudioAccessToApisNotAllowed") then
+				-- Studio without API access: show this server's board and stop asking
+				store = nil
+				globalRows = nil
+				break
+			end
 			if ok and pages then
 				local entries = {}
 				for _, item in (pages :: DataStorePages):GetCurrentPage() do

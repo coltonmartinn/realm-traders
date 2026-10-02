@@ -888,7 +888,9 @@ Rules.EGG_FALLBACK_CASH = 30000
 
 -- Grants a Robux purchase once. Returns false if purchaseId was already
 -- granted, else true plus the hatched pet for eggs. `roll` in [0, 1) picks it.
-function Rules.grantProduct(p: Profile, product: Products.Product, purchaseId: string, roll: number?): (boolean, Pets.Pet?)
+-- `randomAllowed` is false for players where paid random items aren't
+-- allowed (Roblox PolicyService): an egg bought anyway pays coins instead.
+function Rules.grantProduct(p: Profile, product: Products.Product, purchaseId: string, roll: number?, randomAllowed: boolean?): (boolean, Pets.Pet?)
 	if table.find(p.receipts, purchaseId) then
 		return false, nil
 	end
@@ -896,7 +898,7 @@ function Rules.grantProduct(p: Profile, product: Products.Product, purchaseId: s
 	if product.kind == "cash" then
 		p.cash += Rules.packCash(p, product)
 	elseif product.kind == "egg" then
-		hatched = Pets.rollExotic(p.pets.owned, roll or 0)
+		hatched = if randomAllowed == false then nil else Pets.rollExotic(p.pets.owned, roll or 0)
 		if hatched then
 			Rules.addPet(p, hatched.id)
 		else

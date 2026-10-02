@@ -682,8 +682,27 @@ end)
 
 -- Robux purchases -----------------------------------------------------------------
 
+-- Whether a player may get paid random items (the Exotic Egg). Roblox requires
+-- checking PolicyService; if the check fails, assume not.
+local randomAllowedCache: { [Player]: boolean } = {}
+local function randomAllowed(player: Player): boolean
+	local cached = randomAllowedCache[player]
+	if cached ~= nil then
+		return cached
+	end
+	local ok, info = pcall(function()
+		return game:GetService("PolicyService"):GetPolicyInfoForPlayerAsync(player)
+	end)
+	local allowed = ok and type(info) == "table" and info.ArePaidRandomItemsRestricted == false
+	randomAllowedCache[player] = allowed
+	return allowed
+end
+Players.PlayerRemoving:Connect(function(player)
+	randomAllowedCache[player] = nil
+end)
+
 local function grant(player: Player, profile: Rules.Profile, product: Products.Product, purchaseId: string)
-	local granted, hatched = Rules.grantProduct(profile, product, purchaseId, math.random())
+	local granted, hatched = Rules.grantProduct(profile, product, purchaseId, math.random(), randomAllowed(player))
 	if not granted then
 		return -- already granted (Roblox retried the receipt)
 	end
@@ -692,7 +711,8 @@ local function grant(player: Player, profile: Rules.Profile, product: Products.P
 			notify(player, { kind = "goal", header = "🥚 EXOTIC HATCH! 🥚", text = `{hatched.icon} {hatched.name}: +{math.floor(hatched.bonus * 100 + 0.5)}% sell bonus!`, pet = hatched.id })
 			announce(`🥚 {player.DisplayName} hatched an exotic {hatched.icon} {hatched.name}!`)
 		else
-			notify(player, { kind = "daily", text = `You have every exotic! Here's {money(Rules.EGG_FALLBACK_CASH * (1 + profile.rebirths))} instead`, amount = Rules.EGG_FALLBACK_CASH * (1 + profile.rebirths) })
+			local why = if randomAllowed(player) then "You have every exotic!" else "Eggs aren't available where you are."
+			notify(player, { kind = "daily", text = `{why} Here's {money(Rules.EGG_FALLBACK_CASH * (1 + profile.rebirths))} instead`, amount = Rules.EGG_FALLBACK_CASH * (1 + profile.rebirths) })
 		end
 	elseif product.kind == "cash" then
 		notify(player, { kind = "daily", text = `Thanks for your support! +{money(Rules.packCash(profile, product))}`, amount = Rules.packCash(profile, product) })

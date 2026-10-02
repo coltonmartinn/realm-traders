@@ -50,9 +50,8 @@ See [docs/DESIGN.md](docs/DESIGN.md) for why the game is built this way (researc
 
 ## Before publishing
 
-- Create the Developer Products (4 coin packs, the Exotic Egg, 3 boosts) on the Creator
-  Dashboard and put their IDs in `src/shared/Products.luau` (they're all `0` now).
-- Optional: tick **Decoration** on Workspace.Terrain in Studio for swaying grass.
+See [docs/PUBLISHING.md](docs/PUBLISHING.md): the 8 Developer Products to create (their IDs
+go in `src/shared/Products.luau`), store page text, settings and a launch test checklist.
 
 ## Setup
 

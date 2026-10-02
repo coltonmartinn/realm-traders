@@ -458,6 +458,16 @@ do
 	check("garbage save", Rules.reconcile("garbage").cash == Rules.START_CASH)
 end
 
+-- Exotic Egg where paid random items aren't allowed: coins, never a pet
+do
+	local p = Rules.newProfile()
+	local cash = p.cash
+	local ok, hatched = Rules.grantProduct(p, Products.byKey.egg_exotic, "egg-r1", 0.5, false)
+	check("restricted egg grants coins", ok and hatched == nil and next(p.pets.owned) == nil and p.cash == cash + Rules.EGG_FALLBACK_CASH)
+	local ok2, hatched2 = Rules.grantProduct(p, Products.byKey.egg_exotic, "egg-r2", 0.5, true)
+	check("allowed egg hatches a pet", ok2 and hatched2 ~= nil)
+end
+
 -- Deep Mine: depth by gear (hub) or protective gear (portal worlds), random ores
 do
 	local p = Rules.newProfile()
