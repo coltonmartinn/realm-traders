@@ -38,14 +38,14 @@ Products.BOOST_ORDER = { "sell", "gather", "luck" }
 Products.MAX_BOOST_SECONDS = 4 * 3600
 
 Products.list = {
-	{ key = "cash_1", id = 0, kind = "cash", name = "Pouch of Coins", icon = "💰", robux = 25, color = "gold", cash = 1000 },
-	{ key = "cash_2", id = 0, kind = "cash", name = "Sack of Coins", icon = "💰", robux = 99, color = "gold", cash = 6000, tag = "POPULAR" },
-	{ key = "cash_3", id = 0, kind = "cash", name = "Chest of Coins", icon = "🧰", robux = 399, color = "orange", cash = 30000 },
-	{ key = "cash_4", id = 0, kind = "cash", name = "Vault of Coins", icon = "🏦", robux = 999, color = "orange", cash = 100000, tag = "BEST VALUE" },
-	{ key = "egg_exotic", id = 0, kind = "egg", name = "Exotic Egg", icon = "🥚", robux = 199, color = "purple", tag = "BEST PETS" },
-	{ key = "boost_sell", id = 0, kind = "boost", name = "2× Sell Boost", icon = "💸", robux = 49, color = "green", boost = "sell", minutes = 15 },
-	{ key = "boost_gather", id = 0, kind = "boost", name = "2× Gather Boost", icon = "⚡", robux = 49, color = "blue", boost = "gather", minutes = 15 },
-	{ key = "boost_luck", id = 0, kind = "boost", name = "3× Luck Boost", icon = "🍀", robux = 39, color = "purple", boost = "luck", minutes = 15 },
+	{ key = "cash_1", id = 3716026287, kind = "cash", name = "Pouch of Coins", icon = "💰", robux = 25, color = "gold", cash = 1000 },
+	{ key = "cash_2", id = 3716026343, kind = "cash", name = "Sack of Coins", icon = "💰", robux = 99, color = "gold", cash = 6000, tag = "POPULAR" },
+	{ key = "cash_3", id = 3716026396, kind = "cash", name = "Chest of Coins", icon = "🧰", robux = 399, color = "orange", cash = 30000 },
+	{ key = "cash_4", id = 3716026417, kind = "cash", name = "Vault of Coins", icon = "🏦", robux = 999, color = "orange", cash = 100000, tag = "BEST VALUE" },
+	{ key = "egg_exotic", id = 3716026480, kind = "egg", name = "Exotic Egg", icon = "🥚", robux = 199, color = "purple", tag = "BEST PETS" },
+	{ key = "boost_sell", id = 3716026518, kind = "boost", name = "2× Sell Boost", icon = "💸", robux = 49, color = "green", boost = "sell", minutes = 15 },
+	{ key = "boost_gather", id = 3716026574, kind = "boost", name = "2× Gather Boost", icon = "⚡", robux = 49, color = "blue", boost = "gather", minutes = 15 },
+	{ key = "boost_luck", id = 3716026596, kind = "boost", name = "3× Luck Boost", icon = "🍀", robux = 39, color = "purple", boost = "luck", minutes = 15 },
 } :: { Product }
 
 Products.byKey = {} :: { [string]: Product }

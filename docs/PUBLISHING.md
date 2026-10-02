@@ -29,7 +29,9 @@ Until each product has an ID, its shop button shows **SOON** and can't be bought
 | boost_gather | 2× Gather Boost | 49 | Double goods from every gather, for 15 minutes. |
 | boost_luck | 3× Luck Boost | 39 | Triple the chance of Golden and Rainbow finds, for 15 minutes. |
 
-Send the 8 IDs to Claude, or paste them in yourself. Then sync and publish again.
+✅ Done: all 8 are created and their IDs are in `Products.luau`. When you create
+a product, it asks about trading or gifting. Answer "does not allow trading or
+gifting": players only trade with the market, never with each other.
 
 **Already handled in code:**
 - Each purchase is granted once and only confirmed after it saves.
